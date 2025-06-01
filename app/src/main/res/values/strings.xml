@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">cping</string>
+
+    <string name="app_logo_description">App Logo</string>
+    <string name="login_welcome">Welcome back</string>
+    <string name="login_instruction">Enter the verification code to continue</string>
+
+    <string name="otp_label">Verification Code</string>
+    <string name="otp_placeholder">Enter the code here</string>
+    <string name="otp_paste">Paste</string>
+
+    <string name="login_button">Log in</string>
+    <string name="login_loading">Verifying…</string>
+    <string name="otp_invalid">Invalid verification code</string>
+
+    <string name="register_prompt">Don\'t have an account?</string>
+    <string name="register_now">Sign up</string>
+    <string name="register_cta">Create your account for free now</string>
 </resources>

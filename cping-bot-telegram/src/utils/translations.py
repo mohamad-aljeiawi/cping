@@ -25,8 +25,8 @@ translations: dict[str, str] = {
     "Error inserting OTP or already registered\\!": "حدث خطأ أثناء إدراج رمز التحقق أو قد تم التسجيل بالفعل\\!",
     "Error sending OTP\\!": "حدث خطأ أثناء إرسال رمز التحقق\\!",
     "Error logging in\\!": "حدث خطأ أثناء تسجيل الدخول\\!",
-    "Your OTP is: [id]:[otp]`\nPlease enter this OTP in application and click on Login button\\.": "رمز التحقق الخاص بك هو: [id]:[otp]\nالرجاء إدخال هذا الرمز في التطبيق والضغط على زر تسجيل الدخول\\.",
-    "Please wait 5 minute before generating a new OTP.": "الرجاء الإنتظار 5 دقائق قبل إنشاء رمز تحقق جديد\\.",
+    "Your OTP is: [otp]`\nPlease enter this OTP in application and click on Login button\\.": "رمز التحقق الخاص بك هو: [otp]\nالرجاء إدخال هذا الرمز في التطبيق والضغط على زر تسجيل الدخول\\.",
+    "Please wait 5 minute before generating a new OTP\\.": "الرجاء الإنتظار 5 دقائق قبل إنشاء رمز تحقق جديد\\.",
     # start
     "You must be registered to use this service.\nPlease use /login to register your account.": "يجب عليك تسجيل الدخول لاستخدام هذه الخدمة\\.\nالرجاء استخدام /login لتسجيل حسابك\\.",
     "You must set a Telegram username before using this service.\nPlease go to your Telegram settings, create a username, and try again.": "يجب عليك تعيين اسم المستخدم للتواصل قبل استخدام هذه الخدمة\\.\nالرجاء الذهاب إلى إعدادات Telegram الخاصة بك وإنشاء اسم مستخدم وإعادة المحاولة\\.",

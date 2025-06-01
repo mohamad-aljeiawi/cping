@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose) apply false
     // addition plugins
     //-- hilt and dagger
-    alias(libs.plugins.dagger.hilt.android)  apply false
+    alias(libs.plugins.dagger.hilt.android) apply false
     //-- devtools ksp
-    alias(libs.plugins.devtools.ksp)  apply false
+    alias(libs.plugins.devtools.ksp) apply false
 }

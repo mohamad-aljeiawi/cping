@@ -4,7 +4,7 @@
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#FF121212</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_logo_splash</item>
-        <item name="windowSplashScreenAnimationDuration">300</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
         <item name="postSplashScreenTheme">@style/Theme.Cping</item>
     </style>
 </resources>

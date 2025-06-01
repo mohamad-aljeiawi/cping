@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">cping</string>
+
+
+    <string name="app_logo_description">شِعار التطبيق</string>
+    <string name="login_welcome">مرحبًا بعودتك</string>
+    <string name="login_instruction">أدخل رمز التحقّق للمتابعة</string>
+
+    <string name="otp_label">رمز التحقّق</string>
+    <string name="otp_placeholder">أدخل الرمز هنا</string>
+    <string name="otp_paste">لصق</string>
+
+    <string name="login_button">تسجيل الدخول</string>
+    <string name="login_loading">جارٍ التحقّق…</string>
+    <string name="otp_invalid">رمز التحقّق غير صحيح</string>
+
+    <string name="register_prompt">ليس لديك حساب؟</string>
+    <string name="register_now">إنشاء حساب</string>
+    <string name="register_cta">أنشئ حسابك مجانًا الآن</string>
+</resources>

@@ -2,13 +2,17 @@ cmake_minimum_required(VERSION 3.22.1)
 project(cping_socket)
 
 file(GLOB IMGUI_SRC
+        "include/*.cpp"
         "include/imgui/*.cpp"
+        "include/utils/*.cpp"
         "include/imgui/backends/imgui_impl_opengl3.cpp"
 )
 
 add_library(imgui STATIC ${IMGUI_SRC})
 
 target_include_directories(imgui PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
         ${CMAKE_CURRENT_SOURCE_DIR}/include/imgui
         ${CMAKE_CURRENT_SOURCE_DIR}/include/imgui/backends
 )

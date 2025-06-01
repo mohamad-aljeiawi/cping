@@ -134,26 +134,121 @@ begin
 end;
 $$ language plpgsql stable;
 
-create or replace function can_generate_otp (person_id_input bigint) returns boolean as $$
+create or replace function fun_generate_unique_otp (person_id_input bigint, otp_length int default 6) returns text language plpgsql as $$
 declare
-  count_5min int;
+  var_generated_otp text;
+  var_try_count int := 0;
+  var_is_otp_exists boolean;
+  var_recent_otp_count int := 0;
 begin
-  select count(*) into count_5min
+
+  select count(*) into var_recent_otp_count
   from otps
   where person_id = person_id_input
     and created_at > now() - interval '5 minutes';
 
-  if count_5min >= 3 then
-    return false;
-  else
-    return true;
+  if var_recent_otp_count >= 3 then
+    raise exception 'You must wait before generating another OTP.';
   end if;
+  
+  loop
+    var_generated_otp := (
+      select string_agg(
+        substr('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', trunc(random() * 36)::int + 1, 1),
+        ''
+      )
+      from generate_series(1, otp_length)
+    );
+    
+    select exists (
+      select 1 from otps
+      where otp = var_generated_otp
+        and expires_at > now()
+    ) into var_is_otp_exists;
+
+    exit when not var_is_otp_exists;
+
+    var_try_count := var_try_count + 1;
+    if var_try_count > 10 then
+      raise exception 'Failed to generate unique OTP after 10 tries';
+    end if;
+  end loop;
+
+  insert into otps (person_id, otp)
+  values (person_id_input, var_generated_otp);
+
+  return var_generated_otp;
 end;
-$$ language plpgsql stable;
+$$;
+
+create or replace function fun_verify_otp (otp_input text, ip_input text, region_input text) returns table (person_id bigint, token text) language plpgsql security definer as $$
+declare
+  var_uid bigint;
+  var_telegram_id bigint;
+  var_otp_expires_at timestamp;
+  var_is_existing_ip_region boolean;
+  var_device_count int;
+begin
+
+  select
+    p.id,
+    p.telegram_id,
+    o.expires_at
+  into
+    var_uid,
+    var_telegram_id,
+    var_otp_expires_at
+  from otps o
+  join persons p on o.person_id = p.id
+  where o.otp = otp_input
+    and o.expires_at > now()
+  order by o.created_at desc
+  limit 1;
+
+  if var_uid is null then
+    raise exception 'The verification code is invalid or has expired.';
+  end if;
+
+  select count(*) into var_device_count
+  from (
+    select distinct ip, region
+    from ipinfos
+    where ipinfos.person_id = var_uid
+  ) as location_set;
+
+  select exists (
+    select 1
+    from ipinfos
+    where ipinfos.person_id = var_uid
+      and ip = ip_input
+      and region = region_input
+  ) into var_is_existing_ip_region;
+
+  if var_device_count >= 2 and not var_is_existing_ip_region then
+    raise exception 'Login denied: Account already active from 2 different locations.';
+  end if;
+
+  return query
+  select
+    var_uid as person_id,
+    extensions.sign(
+      json_build_object(
+        'sub', var_uid::text,
+        'telegram_id', var_telegram_id::text,
+        'role', 'authenticated',
+        'exp', extract(epoch from now() + interval '14 day')::int
+      ),
+      'ebb56de2c4b4eb4d14b81f5d66eb50c3555d84a47127e8511cb024888e162969',
+      'HS256'
+    ) as token;
+end;
+$$;
 
 --====================
 --===== TRIGGER ======
 --====================
+
+
 -- ================================
 -- RLS Policies for Supabase Schema
 -- ================================
