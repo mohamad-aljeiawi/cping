@@ -8,6 +8,8 @@ plugins {
     alias(libs.plugins.dagger.hilt.android)
     //-- devtools ksp
     alias(libs.plugins.devtools.ksp)
+    //-- kotlin serialization
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -79,10 +81,45 @@ dependencies {
     //-- hilt and dagger
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
+
     //-- SplashScreen API
     implementation(libs.androidx.core.splashscreen)
 
+    // Supabase BOM
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
+    implementation(libs.supabase.functions)
+    implementation(libs.supabase.storage)
 
+    // ktor engine
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+//    implementation(libs.ktor.client.android)
+
+    // OkHttp BOM
+    implementation(platform(libs.okhttp3.bom))
+    implementation(libs.okhttp3.okhttp3)
+    implementation(libs.okhttp3.logging)
+
+    // Retrofit + Serialization
+    implementation(libs.retrofit)
+    implementation(libs.kotlinx.serialization.json)
+    
+    //-- libsu for android root permission
+    implementation(libs.topjohnwu.core)
+    implementation(libs.topjohnwu.service)
+    implementation(libs.topjohnwu.nio)
+
+    // navigation compose
+    implementation(libs.navigation.compose)
+    implementation(libs.lifecycle.viewmodel)
+    implementation(libs.hilt.navigation)
+    implementation(libs.kotlinx.coroutines)
+
+    // font awesome icons
+    implementation(libs.font.awesome.icons)
 }
 
 

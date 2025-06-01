@@ -3,7 +3,6 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from db.supabase import supabase
 from utils.translations import trans
-from utils.utils import generate_otp
 
 
 def is_registered(telegram_id: int) -> bool:
@@ -17,17 +16,6 @@ def is_registered(telegram_id: int) -> bool:
         return len(response.data) > 0
     except Exception as e:
         print(f"is_registered error: {e}")
-        return False
-
-
-def can_generate_otp(person_id: int) -> bool:
-    try:
-        response = supabase.rpc(
-            "can_generate_otp", {"person_id_input": person_id}
-        ).execute()
-        return response.data is True
-    except Exception as e:
-        print(f"can_generate_otp error: {e}")
         return False
 
 
@@ -132,12 +120,12 @@ async def login_logic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         user: User = update.message.from_user
         locale: str = user.language_code
         person_id: int = -1
-        otp: str = generate_otp()
+        otp: str = ""
 
         if not is_registered(user.id):
             await update.message.reply_text(
                 trans(locale, "You are not registered\\!"),
-                parse_mode=ParseMode.MARKDOWN_V2
+                parse_mode=ParseMode.MARKDOWN_V2,
             )
             person_id = insert_person(
                 user.id,
@@ -151,7 +139,7 @@ async def login_logic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if person_id == -1:
                 await update.message.reply_text(
                     trans(locale, "Error inserting person or already registered\\!"),
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    parse_mode=ParseMode.MARKDOWN_V2,
                 )
                 return
 
@@ -160,7 +148,7 @@ async def login_logic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if person_id == -1:
                 await update.message.reply_text(
                     trans(locale, "Error logging in\\!"),
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    parse_mode=ParseMode.MARKDOWN_V2,
                 )
                 return
 
@@ -175,41 +163,43 @@ async def login_logic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 },
             )
 
-            if not can_generate_otp(person_id):
-                await update.message.reply_text(
-                    trans(locale, "Please wait 5 minute before generating a new OTP."),
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-                return
-
-            otp_id = insert_otp(person_id, otp)
-            if otp_id == -1:
-                await update.message.reply_text(
-                    trans(locale, "Error inserting OTP or already registered\\!"),
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-                return
+            try:
+                response = supabase.rpc(
+                    "fun_generate_unique_otp", {"person_id_input": person_id}
+                ).execute()
+                otp = response.data
+            except Exception as e:
+                if e.message == "You must wait before generating another OTP.":
+                    await update.message.reply_text(
+                        trans(
+                            locale,
+                            "Please wait 5 minute before generating a new OTP\\.",
+                        ),
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                    )
+                    return
+                print(f"generate_unique_otp error: {e}")
+                print(f"generate_unique_otp response: {response}")
+                return -1
 
             await update.message.reply_text(
                 trans(
                     locale,
-                    "Your OTP is: `[id]:[otp]`\nPlease enter this OTP in application and click on Login button\\.",
-                    {"id": str(user.id), "otp": otp},
+                    "Your OTP is: `[otp]`\nPlease enter this OTP in application and click on Login button\\.",
+                    {"otp": otp},
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception as e:
             print(f"login_logic send OTP error: {e}")
             await update.message.reply_text(
-                trans(locale, "Error sending OTP\\!"),
-                parse_mode=ParseMode.MARKDOWN_V2
+                trans(locale, "Error sending OTP\\!"), parse_mode=ParseMode.MARKDOWN_V2
             )
             return
 
     except Exception as e:
         print(f"login_logic main error: {e}")
         await update.message.reply_text(
-            trans(locale, "Error logging in\\!"),
-            parse_mode=ParseMode.MARKDOWN_V2
+            trans(locale, "Error logging in\\!"), parse_mode=ParseMode.MARKDOWN_V2
         )
         return

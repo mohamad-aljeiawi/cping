@@ -3,5 +3,7 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cping-bot-telegram" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cping-memory" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yun-ang" vcs="Git" />
   </component>
 </project>

@@ -23,7 +23,6 @@ fun AuthGraph(
             val viewModel = hiltViewModel<LoginViewModel>()
             LoginScreen(
                 rootNavController = rootNavController,
-                navController = navController,
                 viewModel = viewModel
             )
         }
