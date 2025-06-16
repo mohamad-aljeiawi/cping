@@ -15,5 +15,7 @@ data class DeviceInfoObject(
     val org: String,
     val timezone: String,
     @SerialName("device_info")
-    val deviceInfo: String
+    val deviceInfo: String,
+    @SerialName("device_hash")
+    val deviceHash: String
 )

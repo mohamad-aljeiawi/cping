@@ -1,7 +1,6 @@
 package com.cping.jo.di
 
-import android.content.SharedPreferences
-import com.cping.jo.service.SupabaseClientProvider
+import com.cping.jo.di.SupabaseClientProvider
 import com.cping.jo.utils.SharedPrefManager
 import dagger.Module
 import dagger.Provides
@@ -18,18 +17,12 @@ import okhttp3.Request
 @InstallIn(SingletonComponent::class)
 class AppModule {
 
-    @Provides
-    @Singleton
-    fun provideSharedPreferences(
-        sharedPrefManager: SharedPrefManager
-    ): SharedPreferences = sharedPrefManager.getSharedPref()
-
 
     @Provides
     @Singleton
     fun provideSupabaseClient(
-        sharedPreferences: SharedPreferences
-    ): SupabaseClient = SupabaseClientProvider.initialize(sharedPreferences)
+        sharedPrefManager: SharedPrefManager
+    ): SupabaseClient = SupabaseClientProvider.initialize(sharedPrefManager)
 
     @Provides
     @Singleton

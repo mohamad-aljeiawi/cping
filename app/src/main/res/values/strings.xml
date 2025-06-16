@@ -16,4 +16,22 @@
     <string name="register_prompt">Don\'t have an account?</string>
     <string name="register_now">Sign up</string>
     <string name="register_cta">Create your account for free now</string>
+
+    <!-- Menu Categories -->
+    <string name="menu_visual">Visual</string>
+    <string name="menu_combat">Combat</string>
+
+    <!-- Visual Submenu -->
+    <string name="visual_skeleton">Skeleton + Line</string>
+    <string name="visual_name">Name + Team Color</string>
+    <string name="visual_health">Health</string>
+    <string name="visual_box">Box</string>
+
+    <!-- Combat Submenu -->
+    <string name="combat_aimbot">Aimbot</string>
+    <string name="combat_distance">Distance</string>
+    <string name="combat_fov">FOV</string>
+    <string name="combat_sensitivity">Sensitivity</string>
+    <string name="combat_exclude_bots">Exclude Bots</string>
+    <string name="menu_settings">Settings</string>
 </resources>

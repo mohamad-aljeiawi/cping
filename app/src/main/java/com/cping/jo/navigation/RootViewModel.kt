@@ -1,12 +1,14 @@
 package com.cping.jo.navigation
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cping.jo.utils.Constants
+import com.cping.jo.utils.SharedPrefManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -17,7 +19,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RootViewModel @Inject constructor(
-    private val sharedPreferences: SharedPreferences,
+    private val sharedPrefManager: SharedPrefManager,
     private val supabaseClient: SupabaseClient,
 ) : ViewModel() {
 
@@ -27,7 +29,9 @@ class RootViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             delay(500)
-            val token = sharedPreferences.getString(Constants.PREF_ACCESS_TOKEN, null)
+            val token = sharedPrefManager.getData(Constants.PREF_ACCESS_TOKEN)
+
+            Log.d("TAG_TOKEN", "TOKEN: $token")
             if (token.isNullOrEmpty()) {
                 isLogin = false
                 return@launch

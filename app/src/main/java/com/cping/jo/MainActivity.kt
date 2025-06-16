@@ -15,6 +15,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.cping.jo.navigation.graphs.RootGraph
+import com.cping.jo.service.OverlayMenu
+import com.cping.jo.service.OverlayView
 import com.cping.jo.ui.theme.CpingTheme
 import com.cping.jo.utils.Constants
 import com.cping.jo.utils.Utils
@@ -49,53 +51,53 @@ class MainActivity : ComponentActivity() {
             splashState
         }
 
-        Shell.getShell {
-            if (it.isRoot) {
-                Utils.processBuilderShell("settings put global block_untrusted_touches 1")
-                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.WRITE_EXTERNAL_STORAGE")
-                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.READ_EXTERNAL_STORAGE")
-                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.READ_PHONE_STATE")
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    !Environment.isExternalStorageManager()
-                ) {
-                    Utils.processBuilderShell("am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d package:${Constants.PACKAGE_NAME}")
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    !Settings.canDrawOverlays(this)
-                ) {
-                    Utils.processBuilderShell("am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION -d package:${Constants.PACKAGE_NAME}")
-                }
-
-                setContent {
-                    CpingTheme {
-                        RootGraph(
-                            onSplashFinished = {
-                                splashState = false
-                            }
-                        )
+//        Shell.getShell {
+//            if (it.isRoot) {
+//                Utils.processBuilderShell("settings put global block_untrusted_touches 1")
+//                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.WRITE_EXTERNAL_STORAGE")
+//                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.READ_EXTERNAL_STORAGE")
+//                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.READ_PHONE_STATE")
+//
+//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+//                    !Environment.isExternalStorageManager()
+//                ) {
+//                    Utils.processBuilderShell("am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d package:${Constants.PACKAGE_NAME}")
+//                }
+//
+//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+//                    !Settings.canDrawOverlays(this)
+//                ) {
+//                    Utils.processBuilderShell("am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION -d package:${Constants.PACKAGE_NAME}")
+//                }
+//
+//                setContent {
+//                    CpingTheme {
+//                        RootGraph(
+//                            onSplashFinished = {
+//                                splashState = false
+//                            }
+//                        )
+//                    }
+//                }
+//
+//            } else {
+        setContent {
+            CpingTheme {
+                RootGraph(
+                    onSplashFinished = {
+                        splashState = false
                     }
-                }
-
-            } else {
-                setContent {
-                    CpingTheme {
-                        RootGraph(
-                            onSplashFinished = {
-                                splashState = false
-                            }
-                        )
-                    }
-                }
+                )
             }
+//                }
+//            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-//        OverlayGame.hideOverlay(this)
-//        OverlayMenu.hideOverlay(this)
+        OverlayView.hideOverlay(this)
+        OverlayMenu.hideOverlay(this)
 //        Utils.processBuilderShell("kill $(pidof ${Constants.CPING_MEMORY})")
     }
 }
