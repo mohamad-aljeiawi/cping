@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include "logger.h"
 
 #if defined(__arm__)
 #define PROCESS_VM_READ_SYSCALL 376
@@ -31,8 +30,8 @@ namespace Process
     {
         if (!address || !buffer || size == 0 || pid <= 0)
         {
-            LOGE("Invalid parameters: address=%p, buffer=%p, size=%zu, pid=%d",
-                 address, buffer, size, pid);
+            printf("Invalid parameters: address=%p, buffer=%p, size=%zu, pid=%d",
+                   address, buffer, size, pid);
             return false;
         }
 
@@ -48,14 +47,14 @@ namespace Process
 
         if (bytes == -1)
         {
-            LOGE("Read failed at address %p: %s", address, strerror(errno));
+            printf("Read failed at address %p: %s", address, strerror(errno));
             return false;
         }
 
         if (bytes != size)
         {
-            LOGE("Incomplete read at address %p: expected %zu bytes, got %zd bytes",
-                 address, size, bytes);
+            printf("Incomplete read at address %p: expected %zu bytes, got %zd bytes",
+                   address, size, bytes);
             return false;
         }
 
@@ -66,8 +65,8 @@ namespace Process
     {
         if (!address || !buffer || size == 0 || pid <= 0)
         {
-            LOGE("Invalid parameters for write: address=%p, buffer=%p, size=%zu, pid=%d",
-                 address, buffer, size, pid);
+            printf("Invalid parameters for write: address=%p, buffer=%p, size=%zu, pid=%d",
+                   address, buffer, size, pid);
             return false;
         }
 
@@ -83,14 +82,14 @@ namespace Process
 
         if (bytes == -1)
         {
-            LOGE("Write failed at address %p: %s", address, strerror(errno));
+            printf("Write failed at address %p: %s", address, strerror(errno));
             return false;
         }
 
         if (bytes != size)
         {
-            LOGE("Incomplete write at address %p: expected %zu bytes, wrote %zd bytes",
-                 address, size, bytes);
+            printf("Incomplete write at address %p: expected %zu bytes, wrote %zd bytes",
+                   address, size, bytes);
             return false;
         }
 

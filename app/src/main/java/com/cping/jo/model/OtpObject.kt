@@ -10,6 +10,7 @@ data class OtpObject(
     @SerialName("ip_input")
     val ip: String,
     @SerialName("region_input")
-    val region: String
-
+    val region: String,
+    @SerialName("device_hash_input")
+    val deviceHash: String
 )

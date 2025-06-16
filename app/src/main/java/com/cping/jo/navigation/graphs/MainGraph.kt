@@ -33,6 +33,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.cping.jo.R
+import com.cping.jo.screens.main.MainViewModel
 //import com.cping.jo.components.DialogComp
 //import com.cping.jo.screens.main.MainViewModel
 //import com.cping.jo.screens.main.home.HomeScreen
@@ -49,7 +50,16 @@ fun MainGraph(
     rootNavController: NavHostController,
     navController: NavHostController = rememberNavController()
 ) {
-//    val viewModel = hiltViewModel<MainViewModel>()
+    val viewModel = hiltViewModel<MainViewModel>()
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
+        Text("text")
+    }
+
+
 //    Scaffold(
 //        topBar = {
 //            TopAppBar(

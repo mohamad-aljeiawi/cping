@@ -1,11 +1,15 @@
 package com.cping.jo.utils
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import com.cping.jo.model.IpInfoObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.security.MessageDigest
 
 object Utils {
     fun processBuilderShell(command: String) {
@@ -47,9 +51,35 @@ object Utils {
     }
 
     fun getDeviceInfo(): String {
-        val manufacturer = android.os.Build.MANUFACTURER
-        val model = android.os.Build.MODEL
-        val version = android.os.Build.VERSION.RELEASE
+        val manufacturer = Build.MANUFACTURER
+        val model = Build.MODEL
+        val version = Build.VERSION.RELEASE
         return "$manufacturer $model (Android $version)"
+    }
+
+
+    fun getDeviceHash(context: Context): String {
+        val signature = try {
+            val packageInfo = context.packageManager.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES
+            )
+            packageInfo.signingInfo?.apkContentsSigners[0]?.toCharsString()
+        } catch (e: Exception) {
+            "unknown_signature"
+        }
+
+        val rawInfo = listOf(
+            Build.BRAND,
+            Build.DEVICE,
+            Build.HARDWARE,
+            Build.MANUFACTURER,
+            Build.MODEL,
+            Build.PRODUCT,
+            signature
+        ).joinToString(separator = "|")
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(rawInfo.toByteArray(Charsets.UTF_8))
+        return hashBytes.joinToString("") { "%02x".format(it) }
     }
 }

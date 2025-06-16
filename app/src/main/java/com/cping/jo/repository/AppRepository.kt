@@ -1,7 +1,6 @@
 package com.cping.jo.repository
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Log
 import com.cping.jo.model.DeviceInfoObject
 import com.cping.jo.model.IpInfoObject
@@ -19,17 +18,19 @@ import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 import io.github.jan.supabase.auth.user.UserSession
 import kotlin.toString
-import com.cping.jo.service.SupabaseClientProvider
+import com.cping.jo.di.SupabaseClientProvider
+import com.cping.jo.utils.SharedPrefManager
 
 class AppRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     @ApplicationContext private val context: Context,
-    private val sharedPreferences: SharedPreferences
+    private val sharedPrefManager: SharedPrefManager
 ) {
 
     suspend fun verifyOtp(otp: String): APIResponse<LoginOtpObject> {
         try {
             val ipInfo: IpInfoObject? = Utils.getIpInfo()
+            val deviceHash = Utils.getDeviceHash(context)
             val response = supabaseClient.postgrest.rpc(
                 Constants.SUPABASE_SERVICE_FUN_VERIFY_OTP,
                 Json.encodeToJsonElement(
@@ -37,7 +38,8 @@ class AppRepository @Inject constructor(
                     OtpObject(
                         otp = otp,
                         ip = ipInfo?.ip ?: "-",
-                        region = ipInfo?.region ?: "-"
+                        region = ipInfo?.region ?: "-",
+                        deviceHash = deviceHash
                     )
                 ).jsonObject
             ).decodeSingle<LoginOtpObject>()
@@ -72,10 +74,11 @@ class AppRepository @Inject constructor(
 
     suspend fun informationDeviceRegistration(personId: Int): APIResponse<Unit> {
         return try {
-            val supabase = SupabaseClientProvider.initialize(sharedPreferences)
+            val supabase = SupabaseClientProvider.initialize(sharedPrefManager)
 
             val ipInfo: IpInfoObject? = Utils.getIpInfo()
             val deviceInfo = Utils.getDeviceInfo()
+            val deviceHash = Utils.getDeviceHash(context)
             val responseInfo =
                 supabase.postgrest.from(Constants.SUPABASE_TABLE_IP_INFO).insert(
                     DeviceInfoObject(
@@ -87,7 +90,8 @@ class AppRepository @Inject constructor(
                         loc = ipInfo?.loc ?: "-",
                         org = ipInfo?.org ?: "-",
                         timezone = ipInfo?.timezone ?: "-",
-                        deviceInfo = deviceInfo
+                        deviceInfo = deviceInfo,
+                        deviceHash = deviceHash
                     )
                 )
             Log.d("TAG_RESPONSE", "RESPONSE INFO: ${responseInfo.data.toString()}")

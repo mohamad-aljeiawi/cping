@@ -2,8 +2,6 @@ package com.cping.jo.screens.auth.login
 
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +10,7 @@ import com.cping.jo.model.LoginOtpObject
 import com.cping.jo.repository.AppRepository
 import com.cping.jo.utils.APIResponse
 import com.cping.jo.utils.Constants
+import com.cping.jo.utils.SharedPrefManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +22,7 @@ import javax.inject.Inject
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val appRepository: AppRepository,
-    private val sharedPreferences: SharedPreferences,
+    private val sharedPrefManager: SharedPrefManager,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -62,12 +61,11 @@ class LoginViewModel @Inject constructor(
     }
 
     private fun storeAccessToken(token: String?) {
-        sharedPreferences.edit {
-            if (token != null) {
-                putString(Constants.PREF_ACCESS_TOKEN, token)
-            } else {
-                remove(Constants.PREF_ACCESS_TOKEN)
-            }
+
+        if (token != null) {
+            sharedPrefManager.putData(Constants.PREF_ACCESS_TOKEN, token)
+        } else {
+            sharedPrefManager.removeData(Constants.PREF_ACCESS_TOKEN)
         }
     }
 

@@ -54,6 +54,7 @@ create table public.ipinfos (
   org text not null,
   timezone text not null,
   device_info text not null,
+  device_hash text not null,
   created_at timestamp without time zone not null default now(),
   constraint ipinfos_pkey primary key (id),
   constraint ipinfos_person_id_fkey foreign KEY (person_id) references persons (id)
@@ -181,12 +182,17 @@ begin
 end;
 $$;
 
-create or replace function fun_verify_otp (otp_input text, ip_input text, region_input text) returns table (person_id bigint, token text) language plpgsql security definer as $$
+create or replace function fun_verify_otp (
+  otp_input text,
+  ip_input text,
+  region_input text,
+  device_hash_input text
+) returns table (person_id bigint, token text) language plpgsql security definer as $$
 declare
-  var_uid bigint;
+  var_person_id bigint;
   var_telegram_id bigint;
   var_otp_expires_at timestamp;
-  var_is_existing_ip_region boolean;
+  var_is_existing_device boolean;
   var_device_count int;
 begin
 
@@ -195,7 +201,7 @@ begin
     p.telegram_id,
     o.expires_at
   into
-    var_uid,
+    var_person_id,
     var_telegram_id,
     var_otp_expires_at
   from otps o
@@ -205,36 +211,38 @@ begin
   order by o.created_at desc
   limit 1;
 
-  if var_uid is null then
+  if var_person_id is null then
     raise exception 'The verification code is invalid or has expired.';
   end if;
 
   select count(*) into var_device_count
   from (
-    select distinct ip, region
+    select distinct ip, region, device_hash
     from ipinfos
-    where ipinfos.person_id = var_uid
+    where person_id = var_person_id
   ) as location_set;
 
   select exists (
     select 1
     from ipinfos
-    where ipinfos.person_id = var_uid
+    where person_id = var_person_id
       and ip = ip_input
       and region = region_input
-  ) into var_is_existing_ip_region;
+      and device_hash = device_hash_input
+  ) into var_is_existing_device;
 
-  if var_device_count >= 2 and not var_is_existing_ip_region then
+  if var_device_count >= 2 and not var_is_existing_device then
     raise exception 'Login denied: Account already active from 2 different locations.';
   end if;
 
   return query
   select
-    var_uid as person_id,
+    var_person_id as person_id,
     extensions.sign(
       json_build_object(
-        'sub', var_uid::text,
+        'sub', var_person_id::text,
         'telegram_id', var_telegram_id::text,
+        'device_hash', device_hash_input::text,
         'role', 'authenticated',
         'exp', extract(epoch from now() + interval '14 day')::int
       ),

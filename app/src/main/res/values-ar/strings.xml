@@ -18,4 +18,22 @@
     <string name="register_prompt">ليس لديك حساب؟</string>
     <string name="register_now">إنشاء حساب</string>
     <string name="register_cta">أنشئ حسابك مجانًا الآن</string>
+
+    <!-- Menu Categories -->
+    <string name="menu_visual">المرئيات</string>
+    <string name="menu_combat">القتال</string>
+
+    <!-- Visual Submenu -->
+    <string name="visual_skeleton">الهيكل العظمي + الخط</string>
+    <string name="visual_name">الاسم + لون الفريق</string>
+    <string name="visual_health">الصحة</string>
+    <string name="visual_box">الصندوق</string>
+
+    <!-- Combat Submenu -->
+    <string name="combat_aimbot">التصويب التلقائي</string>
+    <string name="combat_distance">المسافة</string>
+    <string name="combat_fov">مجال الرؤية</string>
+    <string name="combat_sensitivity">الحساسية</string>
+    <string name="combat_exclude_bots">استثناء الروبوتات</string>
+    <string name="menu_settings">الأعدادات</string>
 </resources>
