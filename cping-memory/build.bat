@@ -24,12 +24,13 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: Set permissions
 echo Setting permissions...
+@REM adb shell su -c "mv /data/local/tmp/cping_memory /data/data/com.cping.jo/"
 adb shell su -c "chmod 755 /data/local/tmp/cping_memory"
 
 :: Start PUBG Mobile
 echo Starting PUBG Mobile...
 adb shell monkey -p com.tencent.ig -c android.intent.category.LAUNCHER 1
-timeout /t 5 > nul
+@REM timeout /t 5 > nul
 
 :: Run cping_memory
 echo Starting cping_memory...

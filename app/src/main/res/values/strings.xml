@@ -17,21 +17,25 @@
     <string name="register_now">Sign up</string>
     <string name="register_cta">Create your account for free now</string>
 
-    <!-- Menu Categories -->
-    <string name="menu_visual">Visual</string>
-    <string name="menu_combat">Combat</string>
+    <!-- +++++++++Menu Screen++++++++++-->
+    <!-- Visual-->
+    <string name="menu_visual_title">Visual</string>
+    <string name="menu_visual_title_header">Visual Player</string>
+    <string name="menu_visual_esp_group_title">ESP</string>
+    <string name="menu_visual_esp_skeleton">Skeleton + Line</string>
+    <string name="menu_visual_esp_name">Name + Team Color</string>
+    <string name="menu_visual_esp_health">Health</string>
+    <string name="menu_visual_esp_box">Box</string>
+    <string name="menu_visual_esp_distance">Distance ESP</string>
+    <!-- Combat-->
+    <string name="menu_combat_title">Combat</string>
+    <string name="menu_combat_title_header">Combat Player</string>
+    <string name="menu_combat_is_aimbot">Aimbot</string>
+    <string name="menu_combat_fov">FOV</string>
+    <string name="menu_combat_sensitivity">Sensitivity</string>
+    <!-- Setting-->
+    <string name="menu_setting_title">Setting</string>
+    <string name="menu_setting_title_header">Settings</string>
 
-    <!-- Visual Submenu -->
-    <string name="visual_skeleton">Skeleton + Line</string>
-    <string name="visual_name">Name + Team Color</string>
-    <string name="visual_health">Health</string>
-    <string name="visual_box">Box</string>
 
-    <!-- Combat Submenu -->
-    <string name="combat_aimbot">Aimbot</string>
-    <string name="combat_distance">Distance</string>
-    <string name="combat_fov">FOV</string>
-    <string name="combat_sensitivity">Sensitivity</string>
-    <string name="combat_exclude_bots">Exclude Bots</string>
-    <string name="menu_settings">Settings</string>
 </resources>

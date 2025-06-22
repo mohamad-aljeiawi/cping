@@ -1,11 +1,22 @@
 #ifndef ENUM_H
 #define ENUM_H
 
-enum class ConfigApp
-{
-    SUPABASE_URL,
-    SUPABASE_KEY,
-    TOKEN_BOT
+enum class MenuElement {
+    // Visual
+    MENU_VISUAL_ESP_SKELETON,
+    MENU_VISUAL_ESP_NAME,
+    MENU_VISUAL_ESP_HEALTH,
+    MENU_VISUAL_ESP_BOX,
+    MENU_VISUAL_ESP_DISTANCE,
+
+    // Combat
+    MENU_COMBAT_IS_AIMBOT,
+    MENU_COMBAT_AIMBOT_FOV,
+    MENU_COMBAT_AIMBOT_SENSITIVITY,
+
+    UNKNOWN
 };
+
+
 
 #endif // ENUM_H

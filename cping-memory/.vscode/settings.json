@@ -71,6 +71,11 @@
     "span": "cpp",
     "system_error": "cpp",
     "unordered_set": "cpp",
-    "utility": "cpp"
+    "utility": "cpp",
+    "thread": "cpp",
+    "condition_variable": "cpp",
+    "memory_resource": "cpp",
+    "stop_token": "cpp",
+    "cfloat": "cpp"
   }
 }
