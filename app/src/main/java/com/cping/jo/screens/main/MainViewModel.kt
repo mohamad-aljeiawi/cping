@@ -1,14 +1,20 @@
 package com.cping.jo.screens.main
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.cping.jo.repository.AppRepository
 import com.cping.jo.service.OverlayMenu
+import com.cping.jo.service.OverlayView
 import com.cping.jo.utils.SharedPrefManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import jakarta.inject.Inject
+import kotlinx.coroutines.launch
 
+@SuppressLint("SdCardPath")
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val appRepository: AppRepository,
@@ -17,7 +23,24 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
 
     init {
-//        OverlayView.showOverlay(context)
-        OverlayMenu.showOverlay(context)
+
+        viewModelScope.launch {
+            OverlayView.showOverlay(context)
+//            Utils.processBuilderShell("monkey -p com.tencent.ig -c android.intent.category.LAUNCHER 1")
+//            delay(100)
+//            launch { Utils.processBuilderShell("/data/local/tmp/cping_memory") }
+            OverlayMenu.showOverlay(context)
+        }
+
+
+    }
+
+    fun processBuilderShell(command: String) {
+        try {
+            ProcessBuilder(command).start()
+            Log.i("CPING", "Server started")
+        } catch (e: Exception) {
+            Log.e("CPING", "Failed to start server", e)
+        }
     }
 }

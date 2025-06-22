@@ -117,7 +117,7 @@ fun LayoutMenu(
                             )
                         }
                         .width(120.dp)
-                        .padding(4.dp)
+                        .padding(vertical = 4.dp, horizontal = 8.dp)
                         .fillMaxHeight()
                 ) {
                     LoginMenuSelector(
@@ -169,7 +169,7 @@ private fun LoginMenuSelector(
             ) {
                 Text(
                     text = section.title,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
@@ -179,10 +179,11 @@ private fun LoginMenuSelector(
     }
 }
 
+
 @Preview(showBackground = true, name = "Login Screen - AR", locale = "ar")
 @Composable
 private fun LoginScreenPreview() {
-    CpingTheme(darkTheme = false) {
+    CpingTheme(darkTheme = true) {
         LayoutMenu()
     }
 }
@@ -190,7 +191,7 @@ private fun LoginScreenPreview() {
 @Preview(showBackground = true, name = "Login Screen - Dark", locale = "en")
 @Composable
 private fun LoginScreenDarkPreview() {
-    CpingTheme(darkTheme = false) {
+    CpingTheme(darkTheme = true) {
         LayoutMenu()
     }
 }
