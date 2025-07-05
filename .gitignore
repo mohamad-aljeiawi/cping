@@ -13,3 +13,54 @@
 .externalNativeBuild
 .cxx
 local.properties
+**/libs/
+**/obj/
+
+
+
+# Dependency directories
+node_modules/
+__pycache__/
+
+# Environment variables
+.env
+
+# WhatsApp session data
+.wwebjs_auth/
+.wwebjs_cache/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Output
+.output
+.vercel
+/.svelte-kit
+/build
+
+# Env
+.env.*
+!.env.example
+!.env.test
+
+.vercel
