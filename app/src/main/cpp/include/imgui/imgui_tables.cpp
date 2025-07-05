@@ -195,9 +195,9 @@ Index of this file:
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
 
-#include "imgui.h"
+#include "imgui/imgui.h"
 #ifndef IMGUI_DISABLE
-#include "imgui_internal.h"
+#include "imgui/imgui_internal.h"
 
 // System includes
 #include <stdint.h>     // intptr_t
@@ -3375,7 +3375,7 @@ void ImGui::TableAngledHeadersRowEx(ImGuiID row_id, float angle, float max_label
     ButtonBehavior(row_r, row_id, NULL, NULL);
     KeepAliveID(row_id);
 
-    const float ascent_scaled = g.Font->Ascent * g.FontScale; // FIXME: Standardize those scaling factors better
+    const float ascent_scaled = g.FontBaked->Ascent * g.FontBakedScale; // FIXME: Standardize those scaling factors better
     const float line_off_for_ascent_x = (ImMax((g.FontSize - ascent_scaled) * 0.5f, 0.0f) / -sin_a) * (flip_label ? -1.0f : 1.0f);
     const ImVec2 padding = g.Style.CellPadding; // We will always use swapped component
     const ImVec2 align = g.Style.TableAngledHeadersTextAlign;
