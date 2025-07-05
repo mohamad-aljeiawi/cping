@@ -2,7 +2,7 @@
 #include <android/log.h>
 #include <cstdarg>
 
-#define TAG "MemLib"
+#define TAG "Server_Socket"
 
 namespace Logger
 {

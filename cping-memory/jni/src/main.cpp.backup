@@ -1,0 +1,833 @@
+#include "main.h"
+#include <functional>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#ifdef __ANDROID__
+#include <pthread.h>
+#include <sys/resource.h>
+#endif
+
+// Global variables
+std::unordered_map<int, std::string> g_class_name_cache;
+uintptr_t lib_base = 0;
+pid_t target_pid;
+std::atomic<bool> is_running{true};
+float app_fps = 120.0f;
+
+// FPS Synchronization System
+struct FPSSync
+{
+    std::atomic<float> target_render_fps{60.0f};
+    std::atomic<float> target_scanner_fps{120.0f};
+    std::atomic<float> measured_device_fps{0.0f};
+    std::atomic<float> measured_game_fps{0.0f};
+    std::chrono::steady_clock::time_point last_sync_time;
+    std::chrono::steady_clock::time_point last_fps_measure_time;
+
+    // FPS measurement buffers
+    std::atomic<int> render_frame_count_for_sync{0};
+    std::atomic<int> scanner_frame_count_for_sync{0};
+
+    FPSSync()
+    {
+        last_sync_time = std::chrono::steady_clock::now();
+        last_fps_measure_time = std::chrono::steady_clock::now();
+    }
+
+    void update_fps_sync()
+    {
+        auto current_time = std::chrono::steady_clock::now();
+        auto time_since_last_sync = std::chrono::duration_cast<std::chrono::seconds>(current_time - last_sync_time);
+
+        // Sync every 10 seconds (10 seconds)
+        if (time_since_last_sync.count() >= 10)
+        {
+            measure_and_sync_fps();
+            last_sync_time = current_time;
+        }
+    }
+
+    void measure_and_sync_fps()
+    {
+        auto current_time = std::chrono::steady_clock::now();
+        auto measure_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_fps_measure_time);
+
+        if (measure_duration.count() > 1000)
+        { // Measure over at least 1 second
+            // Calculate actual FPS
+            float actual_render_fps = (render_frame_count_for_sync.load() * 1000.0f) / measure_duration.count();
+            float actual_scanner_fps = (scanner_frame_count_for_sync.load() * 1000.0f) / measure_duration.count();
+
+            // Store measured FPS
+            measured_device_fps.store(actual_render_fps, std::memory_order_release);
+            measured_game_fps.store(actual_scanner_fps, std::memory_order_release);
+
+            // Auto-adjust target FPS based on measurements
+            // Use the lower of device capability and game requirement
+            float optimal_render_fps = std::min(actual_render_fps * 0.95f, 120.0f);  // 95% of measured to avoid overload
+            float optimal_scanner_fps = std::max(optimal_render_fps * 2.0f, 120.0f); // Scanner should be faster
+
+            // Clamp values to reasonable ranges
+            optimal_render_fps = std::max(30.0f, std::min(120.0f, optimal_render_fps));
+            optimal_scanner_fps = std::max(60.0f, std::min(240.0f, optimal_scanner_fps));
+
+            // Apply new FPS targets
+            target_render_fps.store(optimal_render_fps, std::memory_order_release);
+            target_scanner_fps.store(optimal_scanner_fps, std::memory_order_release);
+
+            // Reset counters
+            render_frame_count_for_sync.store(0);
+            scanner_frame_count_for_sync.store(0);
+            last_fps_measure_time = current_time;
+
+            // Log the sync (optional - remove in production)
+            // printf("FPS Sync: Render %.1f -> %.1f, Scanner %.1f -> %.1f\n",
+            //        actual_render_fps, optimal_render_fps, actual_scanner_fps, optimal_scanner_fps);
+        }
+    }
+
+    int get_render_frame_time_ms()
+    {
+        float fps = target_render_fps.load(std::memory_order_acquire);
+        return static_cast<int>(1000.0f / fps);
+    }
+
+    int get_scanner_frame_time_ms()
+    {
+        float fps = target_scanner_fps.load(std::memory_order_acquire);
+        return static_cast<int>(1000.0f / fps);
+    }
+};
+
+FPSSync fps_sync;
+
+// Double-buffer system
+GameObjects::FrameData frame_buffers[2];
+std::atomic<int> write_buffer_index{0};
+std::atomic<bool> data_ready{false};
+std::atomic<bool> buffer_swap_pending{false};
+
+// Threading system
+std::thread scanner_thread;
+
+// Game engine pointers (shared between threads)
+std::atomic<uintptr_t> g_world{0};
+std::atomic<uintptr_t> g_names{0};
+
+// Safe shutdown function
+void SafeShutdown()
+{
+    is_running.store(false, std::memory_order_release);
+
+    // Wait a bit for threads to finish their current work
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    if (scanner_thread.joinable())
+    {
+        scanner_thread.join();
+    }
+
+    Renderer::Shutdown();
+}
+
+ImU32 GetTeamColor(int teamId)
+{
+    float hue = fmodf(teamId * GR1, 1.0f);
+    float sat = 0.5f + 0.45f * fmodf(teamId * GR2, 1.0f);
+    float val = 0.6f + 0.35f * fmodf(teamId * GR3, 1.0f);
+
+    float r, g, b;
+    ImGui::ColorConvertHSVtoRGB(hue, sat, val, r, g, b);
+
+    return IM_COL32(
+        int(r * 255.0f),
+        int(g * 255.0f),
+        int(b * 255.0f),
+        255);
+}
+
+void DrawAdvancedHealthBar(ImDrawList *draw_list, ImVec2 position, float health, float maxHealth, int teamId, float distance, ImColor color)
+{
+    float healthPercentage = health / maxHealth;
+    if (healthPercentage > 1.0f)
+        healthPercentage = 1.0f;
+    if (healthPercentage < 0.0f)
+        healthPercentage = 0.0f;
+
+    float barWidth = 100.0f;
+    float barHeight = barWidth * 0.15f;
+    float borderThickness = 1.5f;
+
+    float scale = Utils::calculateTextSize(distance, 10.0f, 360.0f, 0.6f, 1.2f, 0.2f);
+    barWidth *= scale;
+    barHeight *= scale;
+    borderThickness *= scale;
+
+    ImVec2 barPos = ImVec2(position.x - barWidth * 0.5f, position.y - 40.0f * scale);
+
+    ImU32 teamColor = GetTeamColor(teamId);
+
+    draw_list->AddRectFilled(
+        barPos,
+        ImVec2(barPos.x + barWidth, barPos.y + barHeight),
+        IM_COL32(30, 30, 30, 200),
+        2.0f * scale);
+
+    if (healthPercentage > 0.0f)
+    {
+        float filledWidth = barWidth * healthPercentage;
+
+        ImU32 healthColor;
+        if (healthPercentage > 0.7f)
+        {
+            healthColor = color; // أخضر
+        }
+        else if (healthPercentage > 0.4f)
+        {
+            healthColor = IM_COL32(255, 255, 100, 255); // أصفر
+        }
+        else if (healthPercentage > 0.2f)
+        {
+            healthColor = IM_COL32(255, 150, 100, 255); // برتقالي
+        }
+        else
+        {
+            healthColor = IM_COL32(255, 100, 100, 255); // أحمر
+        }
+
+        draw_list->AddRectFilled(
+            ImVec2(barPos.x + 1.0f * scale, barPos.y + 1.0f * scale),
+            ImVec2(barPos.x + filledWidth - 1.0f * scale, barPos.y + barHeight - 1.0f * scale),
+            healthColor,
+            1.5f * scale);
+    }
+
+    float teamBoxSize = 16.0f * scale;
+    ImVec2 teamBoxPos = ImVec2(barPos.x + barWidth + 2.0f * scale, barPos.y);
+
+    draw_list->AddRectFilled(
+        teamBoxPos,
+        ImVec2(teamBoxPos.x + teamBoxSize, barPos.y + barHeight),
+        teamColor,
+        2.0f * scale);
+
+    draw_list->AddRect(
+        teamBoxPos,
+        ImVec2(teamBoxPos.x + teamBoxSize, teamBoxPos.y + teamBoxSize),
+        IM_COL32(255, 255, 255, 200),
+        2.0f * scale,
+        0,
+        1.0f * scale);
+}
+
+// Memory scanning and filtering thread
+void ScannerThread()
+{
+    // Pre-allocate buffers
+    frame_buffers[0].reserve_capacity();
+    frame_buffers[1].reserve_capacity();
+
+    uintptr_t gname_buff[100] = {0};
+
+    // Quick validation
+    uintptr_t local_g_world = g_world.load(std::memory_order_acquire);
+    uintptr_t local_g_names = g_names.load(std::memory_order_acquire);
+
+    if (!local_g_world || !local_g_names)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return;
+    }
+
+    while (is_running.load(std::memory_order_relaxed))
+    {
+        auto frame_start = std::chrono::steady_clock::now();
+
+        // Get current write buffer
+        int write_idx = write_buffer_index.load(std::memory_order_relaxed);
+        auto &current_buffer = frame_buffers[write_idx];
+        current_buffer.clear();
+        current_buffer.timestamp = frame_start;
+
+        // Read core game data
+        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(local_g_world + 0x58, target_pid) + 0x78, target_pid);
+        uintptr_t u_level = Memory::Read<uintptr_t>(u_world + Offset::persistent_level, target_pid);
+        uintptr_t actors_list = Ue4::get_actors_array(u_level, Offset::u_level_to_a_actors, 0x448, target_pid);
+        uintptr_t u_level_to_a_actors = Memory::Read<uintptr_t>(actors_list, target_pid);
+        int u_level_to_a_actors_count = Memory::Read<int>(actors_list + sizeof(uintptr_t), target_pid);
+        uintptr_t player_controller = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_world + 0x38, target_pid) + 0x78, target_pid) + 0x30, target_pid);
+        uintptr_t player_camera_manager = Memory::Read<uintptr_t>(player_controller + Offset::player_camera_manager, target_pid);
+
+        // Validate core pointers
+        // if (player_camera_manager <= 0 || !player_controller || !u_level || !u_level_to_a_actors ||
+        //     !actors_list || !u_world || (u_level_to_a_actors_count <= 0 || u_level_to_a_actors_count >= 1000))
+        // {
+        //     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        //     continue;
+        // }
+
+        // Get display info
+        auto display = android::ANativeWindowCreator::GetDisplayInfo();
+        if (display.width < display.height)
+            std::swap(display.width, display.height);
+
+        current_buffer.display_width = display.width;
+        current_buffer.display_height = display.height;
+        current_buffer.display_orientation = display.orientation;
+
+        // Get camera data
+        Structs::CameraCacheEntry camera_cache = Memory::Read<Structs::CameraCacheEntry>(player_camera_manager + Offset::camera_cache, target_pid);
+        current_buffer.camera_view = camera_cache.POV;
+
+        // Read gnames buffer once
+        Memory::ReadArray(local_g_names, gname_buff, target_pid);
+
+        int local_team_id = Memory::Read<int>(player_controller + Offset::local_team_id, target_pid);
+
+        // Process all actors with memory prefetching optimization
+        for (int i = 0; i < u_level_to_a_actors_count && is_running.load(std::memory_order_relaxed); i++)
+        {
+            uintptr_t actor = Memory::Read<uintptr_t>(u_level_to_a_actors + i * sizeof(uintptr_t), target_pid);
+            if (!actor)
+                continue;
+
+            // Prefetch next actor for better memory access pattern
+            if (i + 1 < u_level_to_a_actors_count)
+            {
+                __builtin_prefetch((void *)(u_level_to_a_actors + (i + 1) * sizeof(uintptr_t)), 0, 1);
+            }
+
+            std::string class_name = Ue4::get_cached_class_name(local_g_names, actor, gname_buff, g_class_name_cache, target_pid);
+            if (class_name == "none" || class_name.empty())
+                continue;
+
+            // Skip irrelevant objects
+            if (strstr(class_name.c_str(), "VH_PG117_C") || strstr(class_name.c_str(), "BP_CharacterRifle") ||
+                strstr(class_name.c_str(), "BP_PlayerRifle") || strstr(class_name.c_str(), "BP_PlayerLobby_Pawn_C") ||
+                strstr(class_name.c_str(), "BP_PlayerController") || strstr(class_name.c_str(), "BP_PlayerCameraManager_C"))
+                continue;
+
+            uintptr_t actor_root_component = Memory::Read<uintptr_t>(actor + Offset::root_component, target_pid);
+            if (!actor_root_component)
+                continue;
+
+            Structs::FTransform transform = Memory::Read<Structs::FTransform>(actor_root_component + Offset::component_to_world, target_pid);
+            float distance = (Structs::FVector::Distance(current_buffer.camera_view.Location, transform.Translation) / 100.0f);
+            Structs::FVector screen_pos = Ue4::world_to_screen(transform.Translation, current_buffer.camera_view, display.width, display.height);
+
+            // Process Players
+            if (strstr(class_name.c_str(), "BP_Character") || strstr(class_name.c_str(), "BP_Player"))
+            {
+                if (distance < 2.0f || distance > 400.0f)
+                    continue;
+
+                int player_death = Memory::Read<int>(actor + Offset::bis_dead, target_pid);
+                if (player_death)
+                    continue;
+
+                int current_states = Memory::Read<int>(actor + Offset::current_states, target_pid);
+                if (current_states == 262144 || current_states == 6)
+                    continue;
+
+                float health = Memory::Read<float>(actor + Offset::health, target_pid);
+                if (health < 0)
+                    continue;
+
+                int team_id = Memory::Read<int>(actor + Offset::team_id, target_pid);
+                if (local_team_id == team_id || team_id <= -1 || team_id >= 1000)
+                    continue;
+
+                GameObjects::Player player_obj;
+                player_obj.position = transform.Translation;
+                player_obj.screen_pos = screen_pos;
+                player_obj.health = health;
+                player_obj.max_health = 100.0f;
+                player_obj.distance = distance;
+                player_obj.team_id = team_id;
+                player_obj.is_bot = Memory::Read<bool>(actor + Offset::bis_ai, target_pid);
+                player_obj.is_alive = health > 0.0f;
+
+                int margin = 20;
+                player_obj.is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin ||
+                                            screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
+
+                if (!player_obj.is_on_screen)
+                {
+                    current_buffer.off_screen_enemies.push_back(transform.Translation);
+                }
+
+                // Get weapon info
+                uintptr_t weapon_manager = Memory::Read<uintptr_t>(actor + 0x2488, target_pid);
+                if (weapon_manager)
+                {
+                    uintptr_t current_weapon = Memory::Read<uintptr_t>(weapon_manager + 0x558, target_pid);
+                    uintptr_t weapon_entity = Memory::Read<uintptr_t>(current_weapon + 0x770, target_pid);
+                    player_obj.weapon_id = Memory::Read<int>(weapon_entity + 0x178, target_pid);
+                }
+
+                // Get player name
+                player_obj.name = Memory::ReadFString(actor + Offset::player_name, target_pid);
+
+                // Get bounding box
+                player_obj.has_valid_bounds = Ue4::process_object_bounds(
+                    actor, {0x498}, {0}, {0x9D4}, {0.45f, 0.45f, 0.65f}, 0.0f,
+                    current_buffer.camera_view, display.width, display.height,
+                    &player_obj.bounds[0], target_pid);
+
+                current_buffer.players.push_back(std::move(player_obj));
+                current_buffer.total_enemies++;
+            }
+            // Process Vehicles
+            else if (strstr(class_name.c_str(), "VH_") || strstr(class_name.c_str(), "Mirado_") ||
+                     strstr(class_name.c_str(), "CoupeRB_") || strstr(class_name.c_str(), "Rony_") ||
+                     strstr(class_name.c_str(), "PickUp_") || strstr(class_name.c_str(), "AquaRail_") ||
+                     strstr(class_name.c_str(), "BP_Bike_") || strstr(class_name.c_str(), "BP_Bike2_") ||
+                     strstr(class_name.c_str(), "wing_Vehicle_"))
+            {
+                GameObjects::Vehicle vehicle_obj;
+                vehicle_obj.position = transform.Translation;
+                vehicle_obj.screen_pos = screen_pos;
+                vehicle_obj.distance = distance;
+                vehicle_obj.class_name = class_name;
+
+                int margin = 10;
+                vehicle_obj.is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin ||
+                                             screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
+
+                vehicle_obj.has_valid_bounds = Ue4::process_object_bounds(
+                    actor, {0xb18}, {0x1268}, {0xac}, {0.45f, 0.45f, 0.65f}, 0.5f,
+                    current_buffer.camera_view, display.width, display.height,
+                    &vehicle_obj.bounds[0], target_pid);
+
+                current_buffer.vehicles.push_back(std::move(vehicle_obj));
+            }
+            // Process Loot
+            else if (strstr(class_name.c_str(), "Pickup_C") || strstr(class_name.c_str(), "PickUp") ||
+                     strstr(class_name.c_str(), "BP_Ammo") || strstr(class_name.c_str(), "BP_QK") ||
+                     strstr(class_name.c_str(), "Wrapper"))
+            {
+                GameObjects::LootItem loot_obj;
+                loot_obj.position = transform.Translation;
+                loot_obj.screen_pos = screen_pos;
+                loot_obj.distance = distance;
+                loot_obj.class_name = class_name;
+                loot_obj.type = GameObjects::LOOT;
+
+                int margin = 10;
+                loot_obj.is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin ||
+                                          screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
+
+                loot_obj.has_valid_bounds = Ue4::process_object_bounds(
+                    actor, {0x8a0, 0x8a8, 0x8b0, 0x8b8, 0x8c0}, {0x878, 0x878, 0x878, 0x878, 0x878},
+                    {0x170, 0x170, 0x170, 0x170, 0x170}, {1.0f, 1.0f, 1.0f}, 0.0f,
+                    current_buffer.camera_view, display.width, display.height,
+                    &loot_obj.bounds[0], target_pid);
+
+                current_buffer.loot_items.push_back(std::move(loot_obj));
+            }
+            // Process Airdrop
+            else if (strstr(class_name.c_str(), "BP_AirDropBox"))
+            {
+                GameObjects::LootItem airdrop_obj;
+                airdrop_obj.position = transform.Translation;
+                airdrop_obj.screen_pos = screen_pos;
+                airdrop_obj.distance = distance;
+                airdrop_obj.class_name = class_name;
+                airdrop_obj.type = GameObjects::AIRDROP;
+
+                int margin = 10;
+                airdrop_obj.is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin ||
+                                             screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
+
+                airdrop_obj.has_valid_bounds = Ue4::process_object_bounds(
+                    actor, {0x810}, {0x878}, {0x170}, {1.0f, 1.0f, 1.0f}, 0.0f,
+                    current_buffer.camera_view, display.width, display.height,
+                    &airdrop_obj.bounds[0], target_pid);
+
+                current_buffer.loot_items.push_back(std::move(airdrop_obj));
+            }
+        }
+
+        // Swap buffers atomically - wait for render thread to finish reading
+        while (buffer_swap_pending.load(std::memory_order_acquire))
+        {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+
+        write_buffer_index.store(1 - write_idx, std::memory_order_release);
+        data_ready.store(true, std::memory_order_release);
+
+        // Update performance stats
+        Performance::global_stats.scanner_frame_count.fetch_add(1, std::memory_order_relaxed);
+        Performance::global_stats.players_processed.fetch_add(current_buffer.players.size(), std::memory_order_relaxed);
+        Performance::global_stats.vehicles_processed.fetch_add(current_buffer.vehicles.size(), std::memory_order_relaxed);
+        Performance::global_stats.loot_processed.fetch_add(current_buffer.loot_items.size(), std::memory_order_relaxed);
+
+        // Update FPS sync counters
+        fps_sync.scanner_frame_count_for_sync.fetch_add(1, std::memory_order_relaxed);
+        fps_sync.update_fps_sync();
+
+        // Dynamic frame rate control based on measured FPS
+        auto frame_end = std::chrono::steady_clock::now();
+        auto frame_duration = std::chrono::duration_cast<std::chrono::milliseconds>(frame_end - frame_start);
+        int target_frame_time = fps_sync.get_scanner_frame_time_ms();
+
+        if (frame_duration.count() < target_frame_time)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(target_frame_time - frame_duration.count()));
+        }
+    }
+}
+
+// Rendering thread
+void RenderThread()
+{
+    bool is_set_fps = false;
+
+    while (is_running.load(std::memory_order_relaxed))
+    {
+        auto render_start = std::chrono::steady_clock::now();
+
+        Renderer::StartFrame();
+        // Utils::control_frame_rate(app_fps);
+
+        // Get display info (may have changed)
+        auto display = android::ANativeWindowCreator::GetDisplayInfo();
+        if (display.width < display.height)
+            std::swap(display.width, display.height);
+
+        ImDrawList *draw_list = ImGui::GetBackgroundDrawList();
+
+        // FPS calculation and adjustment
+        // ImGuiIO &io = ImGui::GetIO();
+        // float current_fps = 1.0f / io.DeltaTime;
+        // if (!is_set_fps)
+        // {
+        //     app_fps = current_fps - 5.0f;
+        //     is_set_fps = true;
+        // }
+
+        // Display FPS and performance stats with sync info
+        char fps_text[192];
+        double scanner_fps = Performance::global_stats.get_scanner_fps();
+        double render_fps = Performance::global_stats.get_render_fps();
+        float target_render = fps_sync.target_render_fps.load();
+        float target_scanner = fps_sync.target_scanner_fps.load();
+        snprintf(fps_text, sizeof(fps_text), "R: %.0f/%.0f | S: %.0f/%.0f | Rot: %d",
+                 render_fps, target_render, scanner_fps, target_scanner, display.orientation);
+        ImVec2 text_size = ImGui::GetFont()->CalcTextSizeA(35.0f, FLT_MAX, -1.0f, fps_text);
+        draw_list->AddText(ImGui::GetFont(), 35.0f, ImVec2(display.width * 0.5f - text_size.x * 0.5f, 350.0f - text_size.y * 0.5f), IM_COL32(255, 255, 255, 255), fps_text);
+
+        // Display object counts
+        char stats_text[128];
+        snprintf(stats_text, sizeof(stats_text), "P:%lu | V:%lu | L:%lu",
+                 Performance::global_stats.players_processed.load(),
+                 Performance::global_stats.vehicles_processed.load(),
+                 Performance::global_stats.loot_processed.load());
+        ImVec2 stats_text_size = ImGui::GetFont()->CalcTextSizeA(30.0f, FLT_MAX, -1.0f, stats_text);
+        draw_list->AddText(ImGui::GetFont(), 30.0f, ImVec2(display.width * 0.5f - stats_text_size.x * 0.5f, 400.0f - stats_text_size.y * 0.5f), IM_COL32(200, 200, 200, 255), stats_text);
+
+        // Check if new data is available
+        if (!data_ready.load(std::memory_order_acquire))
+        {
+            // Show branding when no game data available
+            if (!EncryptedBranding::verify_branding_integrity())
+            {
+                exit(13);
+            }
+
+            const char *protected_branding = EncryptedBranding::get_protected_branding();
+            ImVec2 brand_text_size = ImGui::GetFont()->CalcTextSizeA(50.0f, FLT_MAX, -1.0f, protected_branding);
+            draw_list->AddText(ImGui::GetFont(), 50.0f, ImVec2(display.width * 0.5f - brand_text_size.x * 0.5f, 200.0f - brand_text_size.y * 0.5f), IM_COL32(255, 255, 255, 255), protected_branding);
+        }
+        else
+        {
+            // Signal we're about to read - prevent buffer swap
+            buffer_swap_pending.store(true, std::memory_order_release);
+
+            // Get read buffer (opposite of write buffer)
+            int read_idx = 1 - write_buffer_index.load(std::memory_order_acquire);
+            const auto &frame_data = frame_buffers[read_idx];
+
+            // Validate frame data before using it
+            auto current_time = std::chrono::steady_clock::now();
+            auto data_age = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - frame_data.timestamp);
+
+            // Only render if data is fresh (less than 100ms old)
+            if (data_age.count() < 100)
+            {
+                // Render Players
+                for (const auto &player : frame_data.players)
+                {
+                    if (player.is_on_screen)
+                    {
+                        float text_scale_size = Utils::calculateTextSize(player.distance, 10.0f, 460.0f, 10.0f, 30.0f, 0.2f);
+
+                        std::string display_text = "";
+                        if (!player.name.empty())
+                            display_text += Utils::get_farsi_text(player.name) + " \n";
+                        if (player.is_bot)
+                            display_text += "Bot \n";
+                        if (player.weapon_id > 0)
+                            display_text += std::to_string(player.weapon_id) + " \n";
+                        display_text += std::to_string((int)player.distance) + "m\n";
+
+                        Utils::add_text_center(draw_list, display_text, text_scale_size,
+                                               ImVec2(player.screen_pos.X, player.screen_pos.Y),
+                                               IM_COL32(255, 0, 0, 255), true, 1.1f);
+
+                        DrawAdvancedHealthBar(draw_list, ImVec2(player.screen_pos.X, player.screen_pos.Y),
+                                              player.health, player.max_health, player.team_id, player.distance, IM_COL32(255, 0, 0, 255));
+
+                        // Draw bounding box
+                        if (player.has_valid_bounds)
+                        {
+                            for (int j = 0; j < 4; ++j)
+                            {
+                                Structs::FVector p1 = player.bounds[j];
+                                Structs::FVector p2 = player.bounds[(j + 1) % 4];
+                                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(255, 0, 0, 255), 4.0f);
+                            }
+                            for (int j = 0; j < 4; ++j)
+                            {
+                                Structs::FVector p1 = player.bounds[j + 4];
+                                Structs::FVector p2 = player.bounds[((j + 1) % 4) + 4];
+                                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(255, 0, 0, 255), 4.0f);
+                            }
+                            for (int j = 0; j < 4; ++j)
+                            {
+                                Structs::FVector p1 = player.bounds[j];
+                                Structs::FVector p2 = player.bounds[j + 4];
+                                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(255, 0, 0, 255), 4.0f);
+                            }
+                        }
+                    }
+                }
+
+                // Render Vehicles
+                for (const auto &vehicle : frame_data.vehicles)
+                {
+                    if (vehicle.is_on_screen && vehicle.has_valid_bounds)
+                    {
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = vehicle.bounds[j];
+                            Structs::FVector p2 = vehicle.bounds[(j + 1) % 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(0, 0, 255, 255), 3.0f);
+                        }
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = vehicle.bounds[j + 4];
+                            Structs::FVector p2 = vehicle.bounds[((j + 1) % 4) + 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(0, 0, 255, 255), 3.0f);
+                        }
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = vehicle.bounds[j];
+                            Structs::FVector p2 = vehicle.bounds[j + 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), IM_COL32(0, 0, 255, 255), 3.0f);
+                        }
+                    }
+                }
+
+                // Render Loot Items
+                for (const auto &loot : frame_data.loot_items)
+                {
+                    if (loot.is_on_screen && loot.has_valid_bounds)
+                    {
+                        ImU32 color = (loot.type == GameObjects::AIRDROP) ? IM_COL32(255, 150, 0, 255) : IM_COL32(0, 255, 0, 255);
+                        float thickness = (loot.type == GameObjects::AIRDROP) ? 3.0f : 1.0f;
+
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = loot.bounds[j];
+                            Structs::FVector p2 = loot.bounds[(j + 1) % 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, thickness);
+                        }
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = loot.bounds[j + 4];
+                            Structs::FVector p2 = loot.bounds[((j + 1) % 4) + 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, thickness);
+                        }
+                        for (int j = 0; j < 4; ++j)
+                        {
+                            Structs::FVector p1 = loot.bounds[j];
+                            Structs::FVector p2 = loot.bounds[j + 4];
+                            ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, thickness);
+                        }
+                    }
+                }
+
+                // Render off-screen enemy arrows
+                Structs::OverlayInfo overlay = Ue4::compute_offscreen_enemy_overlay(frame_data.off_screen_enemies, frame_data.total_enemies, frame_data.camera_view, display.width, display.height);
+                for (const auto &arrow : overlay.arrows)
+                {
+                    ImVec2 shadow_off = {3.5f, 2.5f};
+
+                    float dx = arrow.tip.x - (arrow.side1.x + arrow.side2.x) / 2.0f;
+                    float dy = arrow.tip.y - (arrow.side1.y + arrow.side2.y) / 2.0f;
+                    float length = sqrt(dx * dx + dy * dy);
+
+                    dx /= length;
+                    dy /= length;
+
+                    float scale_arrow = 5.0f;
+                    float arrow_head_size = 14.0f * scale_arrow;
+                    float arrow_body_width = 8.0f * scale_arrow;
+                    float arrow_body_length = 15.0f * scale_arrow;
+
+                    ImVec2 tip = arrow.tip;
+                    ImVec2 head_base = ImVec2(tip.x - dx * arrow_head_size, tip.y - dy * arrow_head_size);
+                    ImVec2 head_left = ImVec2(head_base.x - dy * arrow_head_size * 0.6f, head_base.y + dx * arrow_head_size * 0.6f);
+                    ImVec2 head_right = ImVec2(head_base.x + dy * arrow_head_size * 0.6f, head_base.y - dx * arrow_head_size * 0.6f);
+
+                    ImVec2 body_top_left = ImVec2(head_base.x - dy * arrow_body_width * 0.5f, head_base.y + dx * arrow_body_width * 0.5f);
+                    ImVec2 body_top_right = ImVec2(head_base.x + dy * arrow_body_width * 0.5f, head_base.y - dx * arrow_body_width * 0.5f);
+                    ImVec2 body_bottom_left = ImVec2(body_top_left.x - dx * arrow_body_length, body_top_left.y - dy * arrow_body_length);
+                    ImVec2 body_bottom_right = ImVec2(body_top_right.x - dx * arrow_body_length, body_top_right.y - dy * arrow_body_length);
+
+                    // Draw shadows
+                    draw_list->AddTriangleFilled(
+                        ImVec2(tip.x + shadow_off.x, tip.y + shadow_off.y),
+                        ImVec2(head_left.x + shadow_off.x, head_left.y + shadow_off.y),
+                        ImVec2(head_right.x + shadow_off.x, head_right.y + shadow_off.y),
+                        IM_COL32(0, 0, 0, 200));
+
+                    draw_list->AddQuadFilled(
+                        ImVec2(body_top_left.x + shadow_off.x, body_top_left.y + shadow_off.y),
+                        ImVec2(body_top_right.x + shadow_off.x, body_top_right.y + shadow_off.y),
+                        ImVec2(body_bottom_right.x + shadow_off.x, body_bottom_right.y + shadow_off.y),
+                        ImVec2(body_bottom_left.x + shadow_off.x, body_bottom_left.y + shadow_off.y),
+                        IM_COL32(0, 0, 0, 200));
+
+                    // Draw arrows
+                    draw_list->AddQuadFilled(body_top_left, body_top_right, body_bottom_right, body_bottom_left, IM_COL32(255, 0, 0, 255));
+                    draw_list->AddTriangleFilled(tip, head_left, head_right, IM_COL32(255, 0, 0, 255));
+                }
+
+                // Show enemy count
+                if (frame_data.total_enemies > 0)
+                {
+                    std::string text = std::string("Enemies: " + std::to_string(frame_data.total_enemies));
+                    Utils::add_text_center(draw_list, text, 80.0f, ImVec2(display.width * 0.5f, display.height * 0.12f), IM_COL32(255, 0, 0, 255), true, 1.1f);
+                }
+            }
+            else
+            {
+                // Data is too old, show branding instead
+                if (!EncryptedBranding::verify_branding_integrity())
+                {
+                    exit(13);
+                }
+
+                const char *protected_branding = EncryptedBranding::get_protected_branding();
+                ImVec2 brand_text_size = ImGui::GetFont()->CalcTextSizeA(50.0f, FLT_MAX, -1.0f, protected_branding);
+                draw_list->AddText(ImGui::GetFont(), 50.0f, ImVec2(display.width * 0.5f - brand_text_size.x * 0.5f, 200.0f - brand_text_size.y * 0.5f), IM_COL32(255, 255, 255, 255), protected_branding);
+            }
+
+            // Signal we're done reading - allow buffer swap
+            buffer_swap_pending.store(false, std::memory_order_release);
+        }
+
+        Renderer::EndFrame();
+
+        // Update render stats and FPS sync
+        Performance::global_stats.render_frame_count.fetch_add(1, std::memory_order_relaxed);
+        fps_sync.render_frame_count_for_sync.fetch_add(1, std::memory_order_relaxed);
+
+        // Dynamic frame rate control based on measured FPS
+        auto render_end = std::chrono::steady_clock::now();
+        auto render_duration = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
+        int target_frame_time = fps_sync.get_render_frame_time_ms();
+
+        if (render_duration.count() < target_frame_time)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(target_frame_time - render_duration.count()));
+        }
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    // Initial branding integrity check
+    if (!EncryptedBranding::verify_branding_integrity())
+    {
+        exit(13);
+    }
+
+    // Find target game process
+    if (Utils::is_package_running("com.tencent.ig"))
+        target_pid = Utils::find_pid_by_package_name("com.tencent.ig");
+    else if (Utils::is_package_running("com.vng.pubgmobile"))
+        target_pid = Utils::find_pid_by_package_name("com.vng.pubgmobile");
+    else if (Utils::is_package_running("com.pubg.krmobile"))
+        target_pid = Utils::find_pid_by_package_name("com.pubg.krmobile");
+    else if (Utils::is_package_running("com.rekoo.pubgm"))
+        target_pid = Utils::find_pid_by_package_name("com.rekoo.pubgm");
+    else if (Utils::is_package_running("com.pubg.imobile"))
+        target_pid = Utils::find_pid_by_package_name("com.pubg.imobile");
+    else
+    {
+        printf("not open game or not support\n");
+        exit(1);
+        return 0;
+    }
+
+    // Find UE4 base address
+    lib_base = Utils::find_ue4_base(target_pid);
+    if (!lib_base)
+    {
+        Logger::i("Failed to find libUE4.so base address!\n");
+        return -1;
+    }
+
+    // Initialize global game pointers
+    int count_try_get_g_objects = 0;
+    while (count_try_get_g_objects < 10)
+    {
+        uintptr_t temp_g_world = Memory::Read<uintptr_t>(lib_base + Offset::g_world, target_pid);
+        uintptr_t temp_g_names = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(lib_base + Offset::g_name, target_pid) + 0x110, target_pid);
+
+        if (temp_g_world && temp_g_names)
+        {
+            g_world.store(temp_g_world, std::memory_order_release);
+            g_names.store(temp_g_names, std::memory_order_release);
+            break;
+        }
+
+        count_try_get_g_objects++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    }
+
+    if (!g_world.load() || !g_names.load())
+    {
+        Logger::i("Failed to find g_world or g_names\n");
+        return -1;
+    }
+
+    // Initialize renderer
+    auto display = android::ANativeWindowCreator::GetDisplayInfo();
+    if (display.width < display.height)
+        std::swap(display.width, display.height);
+    auto window = android::ANativeWindowCreator::Create("CPING", display.width, display.height);
+    Renderer::Init(window, display.width, display.height);
+
+    // Initialize FPS sync system - just call the constructor logic
+    fps_sync.last_sync_time = std::chrono::steady_clock::now();
+    fps_sync.last_fps_measure_time = std::chrono::steady_clock::now();
+
+    // Start scanner thread only - main thread will handle rendering
+    is_running.store(true);
+    scanner_thread = std::thread(ScannerThread);
+
+    // Main thread handles rendering (to keep OpenGL context in same thread)
+    RenderThread();
+
+    // Wait for scanner thread to finish
+    scanner_thread.join();
+
+    Renderer::Shutdown();
+    return 0;
+}

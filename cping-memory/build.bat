@@ -2,7 +2,7 @@
 
 :: Kill existing process
 echo Killing existing process...
-adb shell su -c "killall -9 cping_memory"
+adb shell su -c "kill -9 $(pidof cping_memory)"
 
 :: Build using ndk-build
 echo Building with NDK...

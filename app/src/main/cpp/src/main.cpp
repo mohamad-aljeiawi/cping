@@ -1,236 +1,168 @@
 #include "main.h"
-#include <thread>
-#include <mutex>
-#include <chrono>
 
-struct RenderContext
-{
-    int width = 0;
-    int height = 0;
-    int orientation = 0;
-    bool isInitialized = false;
-};
+Structs::GameData game_buffers[2];
+std::atomic<int> write_buffer_index{0};
+std::atomic<int> ready_buffer_index{-1};
 
-static RenderContext renderContexts;
-SocketServer socket_server("cping_abstract_socket");
-FrameTimeController fps_controller = FrameTimeController(60);
+std::thread socket_thread_handle;
+SocketServer socket_server("cping_socket_server");
 
-std::thread network_thread_obj;
-Structs::Response shared_response;
-Structs::Request shared_request;
-std::mutex mutex_req;
-std::mutex mutex_res;
+std::atomic<bool> is_running{false};
+std::atomic<float> frame_rate{60.0f};
+float display_width = 0.0f;
+float display_height = 0.0f;
 
-void network_thread(SocketServer *server)
-{
-    while (renderContexts.isInitialized)
-    {
-        // Step 1: Send latest request to client
-        Structs::Request temp_req{};
-        {
-            std::lock_guard<std::mutex> lock(mutex_req);
-            temp_req = shared_request;
+ImColor player_color = IM_COL32(255, 0, 0, 255);
+ImColor text_color_player = IM_COL32(179, 173, 0, 255);
+
+static float aim_slide_x = 1665.1f;
+static float aim_slide_y = 475.0f;
+static float aim_zone_fire_x = 380.0f;
+static float aim_zone_fire_y = 180.0f;
+static float aim_zone_fire_radius = 150.0f;
+static float aim_fov = 300.0f;
+static float aim_interval = 7.0f;
+static float aim_speed = 30.0f;
+static float aim_rang_touch = 100.0f;
+
+void socket_thread() {
+    if (!socket_server.start()) return;
+
+    while (is_running.load(std::memory_order_relaxed)) {
+        int client_socket = accept(socket_server.server_socket, nullptr, nullptr);
+        if (client_socket < 0) {
+            if (is_running.load(std::memory_order_relaxed)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            continue;
         }
-        bool sent = server->send_raw(&temp_req, sizeof(temp_req));
-        if (!sent)
-        {
-            LOGE(TEST_TAG, "server->send_raw failed");
-            //            break;
-        }
+        socket_server.client_socket = client_socket;
 
-        // Step 2: Receive response from client
-        Structs::Response temp_res{};
-        bool received = server->receive_raw(&temp_res, sizeof(temp_res));
-        if (!received)
-        {
-            LOGE(TEST_TAG, "server->receive_raw failed");
-            //            break;
-        }
+        while (is_running.load(std::memory_order_relaxed)) {
+            Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
 
-        {
-            std::lock_guard<std::mutex> lock(mutex_res);
-            shared_response = temp_res;
+            int write_idx = write_buffer_index.load(std::memory_order_relaxed);
+            auto &current_buffer = game_buffers[write_idx];
+            current_buffer.clear();
+            if (!socket_server.receive_raw(&current_buffer, sizeof(Structs::GameData))) break;
+
+            ready_buffer_index.store(write_idx, std::memory_order_release);
+            write_buffer_index.store(1 - write_idx, std::memory_order_relaxed);
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (socket_server.client_socket != -1) {
+            close(socket_server.client_socket);
+            socket_server.client_socket = -1;
+        }
     }
+
+    socket_server.stop();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_service_NativeRenderer_nativeOnSurfaceCreated(JNIEnv *env, jclass)
-{
-    LOGI(TEST_TAG, "Starting OnSurfaceCreated");
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    if (!renderContexts.isInitialized)
-    {
-        LOGI(TEST_TAG, "Starting OnSurfaceCreated Init");
-        IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-        ImGuiIO &io = ImGui::GetIO();
-        (void)io;
-        ImGui::StyleColorsDark();
-        ImGui::GetStyle().ScaleAllSizes(1.0f);
-        ImGui_ImplOpenGL3_Init("#version 300 es");
-
-        LOGI(TEST_TAG, "Starting socket server");
-        if (!socket_server.start())
-        {
-            LOGE(TEST_TAG, "Socket start failed");
-            return;
-        }
-
-        LOGI(TEST_TAG, "Starting network thread");
-        renderContexts.isInitialized = true;
-        network_thread_obj = std::thread(network_thread, &socket_server);
-    }
+Java_com_cping_jo_service_NativeRenderer_nativeOnSurfaceCreated(JNIEnv *env, jclass) {
+    Renderer::Init();
+    is_running.store(true);
+    socket_thread_handle = std::thread(socket_thread);
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cping_jo_service_NativeRenderer_nativeOnSurfaceChanged(JNIEnv *env, jclass, jint width,
-                                                                jint height)
-{
-    LOGI(TEST_TAG, "Starting OnSurfaceChanged");
-
-    glViewport(0, 0, width, height);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    renderContexts.width = width;
-    renderContexts.height = height;
+                                                                jint height) {
+    display_width = (float) width;
+    display_height = (float) height;
+    if (display_width < display_height)
+        std::swap(display_width, display_height);
+    Renderer::SetDisplay((int) display_width, (int) display_height);
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_service_NativeRenderer_nativeOnDrawFrame(JNIEnv *env, jclass)
-{
-    if (!renderContexts.isInitialized)
-        return;
+Java_com_cping_jo_service_NativeRenderer_nativeOnDrawFrame(JNIEnv *env, jclass) {
+    if (!is_running.load(std::memory_order_relaxed)) return;
+    if (display_width <= 0.0f || display_height <= 0.0f) return;
 
-    auto frame_start = std::chrono::high_resolution_clock::now();
-    //    fps_controller.start_frame();
+    Utils::control_frame_rate(frame_rate.load());
 
-    glViewport(0, 0, renderContexts.width, renderContexts.height);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    int read_idx = ready_buffer_index.load(std::memory_order_acquire);
+    const auto &game_data = game_buffers[read_idx];
 
-    ImGuiIO &io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((float)renderContexts.width, (float)renderContexts.height);
+    Renderer::StartFrame();
+    ImDrawList *draw_list = ImGui::GetBackgroundDrawList();
 
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui::NewFrame();
+    for (int i = 0; i < game_data.count_enemies; i++) {
+        const Structs::Player &player = game_data.players[i];
+        if (!player.is_on_screen)
+            continue;
 
-    Structs::Response response_copy;
-    {
-        std::lock_guard<std::mutex> lock(mutex_res);
-        response_copy = shared_response;
-    }
+        if (player.health <= 0)
+            continue;
 
-    Structs::Request request_copy{};
-    {
-        std::lock_guard<std::mutex> lock(mutex_req);
-        request_copy.ScreenHeight = renderContexts.height;
-        request_copy.ScreenWidth = renderContexts.width;
-        request_copy.ScreenOrientation = renderContexts.orientation;
-        shared_request = request_copy;
-    }
-
-    Structs::MinimalViewInfo minimal_view_info = response_copy.MinimalViewInfo;
-    float width = static_cast<float>(renderContexts.width);
-    float height = static_cast<float>(renderContexts.height);
-
-    for (int i = 0; i < response_copy.Count; ++i)
-    {
-        Structs::WorldObject &obj = response_copy.Objects[i];
-
-        Structs::FVector location = Ue4::world_to_screen(obj.Location,minimal_view_info,(int)width,(int)height);
-
-        float margin = 10.0f;
-        if (location.X > margin && location.Y > margin &&
-            location.X < width - margin && location.Y < height - margin &&
-            location.Z > 0.0f)
-        {
-
-            Structs::FTransform transform = obj.Transform;
-            Structs::FBoxSphereBounds bounds = obj.BoxSphereBounds;
-
-            Structs::FVector corners[8] = {
-                {-bounds.BoxExtent.X, -bounds.BoxExtent.Y, -bounds.BoxExtent.Z},
-                {bounds.BoxExtent.X, -bounds.BoxExtent.Y, -bounds.BoxExtent.Z},
-                {bounds.BoxExtent.X, bounds.BoxExtent.Y, -bounds.BoxExtent.Z},
-                {-bounds.BoxExtent.X, bounds.BoxExtent.Y, -bounds.BoxExtent.Z},
-                {-bounds.BoxExtent.X, -bounds.BoxExtent.Y, bounds.BoxExtent.Z},
-                {bounds.BoxExtent.X, -bounds.BoxExtent.Y, bounds.BoxExtent.Z},
-                {bounds.BoxExtent.X, bounds.BoxExtent.Y, bounds.BoxExtent.Z},
-                {-bounds.BoxExtent.X, bounds.BoxExtent.Y, bounds.BoxExtent.Z}};
-
-            Structs::FVector output_object[8];
-
-            for (int i = 0; i < 8; ++i)
-            {
-                Structs::FVector local = corners[i] + bounds.Origin;
-                Structs::FVector world = transform.TransformPosition(local);
-                Structs::FVector screen = Ue4::world_to_screen(world,
-                                                               minimal_view_info,
-                                                               (int)width,
-                                                               (int)height);
-                output_object[i] = screen;
-            }
-
-            ImVec2 textPos(location.X, location.Y);
-            ImGui::GetForegroundDrawList()->AddText(textPos, IM_COL32(255, 0, 0, 255), obj.Name);
-
-            for (int j = 0; j < 4; ++j)
-            {
-                Structs::FVector p1 = output_object[j];
-                Structs::FVector p2 = output_object[(j + 1) % 4];
-                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y),
-                                                        IM_COL32(0, 255, 0, 255));
-            }
-            for (int j = 0; j < 4; ++j)
-            {
-                Structs::FVector p1 = output_object[j + 4];
-                Structs::FVector p2 = output_object[((j + 1) % 4) + 4];
-                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y),
-                                                        IM_COL32(0, 255, 0, 255));
-            }
-            for (int j = 0; j < 4; ++j)
-            {
-                Structs::FVector p1 = output_object[j];
-                Structs::FVector p2 = output_object[j + 4];
-                ImGui::GetForegroundDrawList()->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y),
-                                                        IM_COL32(0, 255, 0, 255));
-            }
+        Structs::FVector screen_pos = player.location;
+        Structs::FVector bounds[8] = {player.bounds[0], player.bounds[1], player.bounds[2],
+                                      player.bounds[3], player.bounds[4], player.bounds[5],
+                                      player.bounds[6], player.bounds[7]};
+        for (int j = 0; j < 4; ++j) {
+            Structs::FVector p1 = bounds[j];
+            Structs::FVector p2 = bounds[(j + 1) % 4];
+            draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), player_color, 2.0f);
         }
+        for (int j = 0; j < 4; ++j) {
+            Structs::FVector p1 = bounds[j + 4];
+            Structs::FVector p2 = bounds[((j + 1) % 4) + 4];
+            draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), player_color, 2.0f);
+        }
+        for (int j = 0; j < 4; ++j) {
+            Structs::FVector p1 = bounds[j];
+            Structs::FVector p2 = bounds[j + 4];
+            draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), player_color, 2.0f);
+        }
+
+        std::string display_text = std::to_string((int) player.distance) + "m";
+
+        float text_scale_size = Utils::calculateTextSize(player.distance, 10.0f, 460.0f, 10.0f,
+                                                         30.0f, 0.2f);
+        Utils::add_text_center(draw_list, display_text, text_scale_size,
+                               ImVec2(player.root.X, player.root.Y), text_color_player, true,
+                               0.95f);
+        Utils::advanced_health_bar(draw_list, player.head.X, player.head.Y, display_width,
+                                   display_height, player.health, 100.0f, player_color,
+                                   IM_COL32(0, 0, 0, 100), player.distance, player.team_id);
     }
 
-    ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    if (game_data.count_enemies > 0) {
+        std::string text = std::string("Enemies: " + std::to_string(game_data.count_enemies));
+        Utils::add_text_center(draw_list, text, 60.0f,
+                               ImVec2(display_width * 0.5f, display_height * 0.12f),
+                               text_color_player, true, 1.1f);
+    }
 
-    auto frame_end = std::chrono::high_resolution_clock::now();
-    float frame_duration_ms = std::chrono::duration<float, std::milli>(
-                                  frame_end - frame_start)
-                                  .count();
-    float fps = 1000.0f / frame_duration_ms;
-    LOGI(TEST_TAG, "[CPING] FPS: %.2f | FrameTime: %.2f ms | Count: %d\n", fps, frame_duration_ms,
-         response_copy.Count);
+    draw_list->AddCircle(ImVec2(display_width * 0.5f, display_height * 0.5f), aim_fov,
+                         IM_COL32(255, 255, 255, 100), 100, 3.0f);
+    draw_list->AddCircleFilled(ImVec2(aim_zone_fire_x, aim_zone_fire_y), aim_zone_fire_radius,
+                               IM_COL32(0, 180, 180, 50));
+    draw_list->AddCircleFilled(ImVec2(aim_slide_x, aim_slide_y), aim_rang_touch,
+                               IM_COL32(180, 90, 0, 50), 100);
 
-    //    fps_controller.end_frame();
+
+    std::string connection_status = socket_server.client_socket != -1 ? "Client Connected" : "Waiting for Client";
+    Utils::add_text_center(draw_list, connection_status, 40.0f,
+                           ImVec2(display_width * 0.5f, display_height * 0.9f),
+                           IM_COL32(150, 255, 150, 255), true, 1.0f);
+
+    Renderer::EndFrame();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_service_NativeRenderer_nativeOnOrientationChanged(JNIEnv *env, jclass,
-                                                                    jint orientation)
-{
-    LOGI(TEST_TAG, "Starting OnOrientationChanged");
-    renderContexts.orientation = orientation;
+Java_com_cping_jo_service_NativeRenderer_nativeSurfaceStop(JNIEnv *env, jclass clazz) {
+    if (!is_running.load(std::memory_order_relaxed)) return;
+
+    is_running.store(false);
+    if (socket_thread_handle.joinable()) socket_thread_handle.join();
+    Renderer::Shutdown();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_utils_NativeBridge_onMenuEvent(JNIEnv *env, jobject thiz, jstring key,
-                                                 jboolean is_checked, jfloat slider_value)
-{
-    LOGI(TEST_TAG, "Starting onMenuEvent");
-
+Java_com_cping_jo_utils_NativeBridge_onMenuEvent(JNIEnv *env, jobject thiz, jstring key, jboolean is_checked, jfloat slider_value) {
     const char *nativeKey = env->GetStringUTFChars(key, nullptr);
     std::string cppKey(nativeKey);
     env->ReleaseStringUTFChars(key, nativeKey);
@@ -239,20 +171,4 @@ Java_com_cping_jo_utils_NativeBridge_onMenuEvent(JNIEnv *env, jobject thiz, jstr
     float value = static_cast<float>(slider_value);
 
     handleMenuEvent(cppKey, checked, value);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_service_NativeRenderer_nativeSurfaceStop(JNIEnv *env, jclass clazz)
-{
-    if (!renderContexts.isInitialized)
-        return;
-    LOGI(TEST_TAG, "Starting nativeSurfaceStop");
-
-    renderContexts.isInitialized = false;
-    if (network_thread_obj.joinable())
-        network_thread_obj.join();
-
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui::DestroyContext();
-    socket_server.stop();
 }
