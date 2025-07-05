@@ -9,7 +9,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
 
 class GLOverlayView(context: Context) : GLSurfaceView(context) {
-    private val renderer = NativeRenderer(context)
+    private val renderer = NativeRenderer()
 
     init {
         setZOrderOnTop(true)

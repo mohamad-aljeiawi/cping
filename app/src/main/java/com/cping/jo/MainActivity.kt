@@ -103,7 +103,5 @@ class MainActivity : ComponentActivity() {
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
-    CpingTheme {
-        RootGraph()
-    }
+    CpingTheme { RootGraph() }
 }

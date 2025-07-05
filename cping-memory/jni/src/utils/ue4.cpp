@@ -1,6 +1,7 @@
 #include "utils/ue4.h"
 #include "utils/memory.h"
 #include "types/offset.h"
+
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -72,12 +73,12 @@ namespace Ue4
         return 0;
     }
 
-    std::string get_cached_class_name(uintptr_t g_names, uintptr_t actor, uintptr_t gname_buff[100], std::unordered_map<int, std::string> *g_class_name_cache, pid_t target_pid)
+    std::string get_cached_class_name(uintptr_t g_names, uintptr_t actor, uintptr_t gname_buff[100], std::unordered_map<int, std::string> &g_class_name_cache, pid_t target_pid)
     {
         int class_id = Memory::Read<int>(actor + 0x18, target_pid);
 
-        auto it = g_class_name_cache->find(class_id);
-        if (it != g_class_name_cache->end())
+        auto it = g_class_name_cache.find(class_id);
+        if (it != g_class_name_cache.end())
         {
             return it->second;
         }
@@ -93,13 +94,13 @@ namespace Ue4
         uintptr_t entry_ptr = Memory::Read<uintptr_t>(gname_buff[page] + index * sizeof(uintptr_t), target_pid);
         if (!entry_ptr)
         {
-            g_class_name_cache->insert({class_id, "none"});
+            g_class_name_cache.emplace(class_id, "none");
             return "none";
         }
 
         std::string name = Memory::ReadFName(entry_ptr, target_pid);
 
-        g_class_name_cache->insert({class_id, name});
+        g_class_name_cache.emplace(class_id, name);
 
         return name;
     }
@@ -292,15 +293,18 @@ namespace Ue4
                                const std::vector<uintptr_t> &bounds_offsets,
                                Structs::FVector scale_factors,
                                float origin_z_offset,
-                               Structs::FBoxSphereBounds *box_sphere_bounds,
-                               Structs::FTransform *transform,
+                               Structs::MinimalViewInfo &minimal_view_info,
+                               int screen_width,
+                               int screen_height,
+                               Structs::FVector *output_object,
                                pid_t process_pid)
+
     {
         // Try different component offsets to find a valid one
         uintptr_t component = 0;
         uintptr_t mesh = 0;
-        Structs::FBoxSphereBounds _box_sphere_bounds = {};
-        Structs::FTransform _transform = {};
+        Structs::FBoxSphereBounds box_sphere_bounds = {};
+        Structs::FTransform transform = {};
 
         for (size_t i = 0; i < component_offsets.size(); i++)
         {
@@ -324,22 +328,22 @@ namespace Ue4
 
                 if (i < bounds_offsets.size())
                 {
-                    _box_sphere_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + bounds_offsets[i], process_pid);
+                    box_sphere_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + bounds_offsets[i], process_pid);
                 }
             }
             else
             {
                 if (i < bounds_offsets.size())
                 {
-                    _box_sphere_bounds = Memory::Read<Structs::FBoxSphereBounds>(component + bounds_offsets[i], process_pid);
+                    box_sphere_bounds = Memory::Read<Structs::FBoxSphereBounds>(component + bounds_offsets[i], process_pid);
                 }
             }
 
             // Check if bounds are valid
-            if (!std::isnan(_box_sphere_bounds.Origin.X) && !std::isnan(_box_sphere_bounds.BoxExtent.X) &&
-                _box_sphere_bounds.BoxExtent.X > 0 && _box_sphere_bounds.BoxExtent.X < 5000.0f)
+            if (!std::isnan(box_sphere_bounds.Origin.X) && !std::isnan(box_sphere_bounds.BoxExtent.X) &&
+                box_sphere_bounds.BoxExtent.X > 0 && box_sphere_bounds.BoxExtent.X < 5000.0f)
             {
-                _transform = Memory::Read<Structs::FTransform>(component + Offset::component_to_world, process_pid);
+                transform = Memory::Read<Structs::FTransform>(component + Offset::component_to_world, process_pid);
                 break;
             }
         }
@@ -347,16 +351,117 @@ namespace Ue4
         if (!component)
             return false;
 
-        *transform = _transform;
-        *box_sphere_bounds = _box_sphere_bounds;
-
         // Apply scale and offset modifications
-        box_sphere_bounds->BoxExtent.X *= scale_factors.X;
-        box_sphere_bounds->BoxExtent.Y *= scale_factors.Y;
-        box_sphere_bounds->BoxExtent.Z *= scale_factors.Z;
-        box_sphere_bounds->Origin.Z -= box_sphere_bounds->BoxExtent.Z * origin_z_offset;
+        box_sphere_bounds.BoxExtent.X *= scale_factors.X;
+        box_sphere_bounds.BoxExtent.Y *= scale_factors.Y;
+        box_sphere_bounds.BoxExtent.Z *= scale_factors.Z;
+        box_sphere_bounds.Origin.Z -= box_sphere_bounds.BoxExtent.Z * origin_z_offset;
+
+        Structs::FVector corners[8] = {
+            {-box_sphere_bounds.BoxExtent.X, -box_sphere_bounds.BoxExtent.Y, -box_sphere_bounds.BoxExtent.Z},
+            {box_sphere_bounds.BoxExtent.X, -box_sphere_bounds.BoxExtent.Y, -box_sphere_bounds.BoxExtent.Z},
+            {box_sphere_bounds.BoxExtent.X, box_sphere_bounds.BoxExtent.Y, -box_sphere_bounds.BoxExtent.Z},
+            {-box_sphere_bounds.BoxExtent.X, box_sphere_bounds.BoxExtent.Y, -box_sphere_bounds.BoxExtent.Z},
+            {-box_sphere_bounds.BoxExtent.X, -box_sphere_bounds.BoxExtent.Y, box_sphere_bounds.BoxExtent.Z},
+            {box_sphere_bounds.BoxExtent.X, -box_sphere_bounds.BoxExtent.Y, box_sphere_bounds.BoxExtent.Z},
+            {box_sphere_bounds.BoxExtent.X, box_sphere_bounds.BoxExtent.Y, box_sphere_bounds.BoxExtent.Z},
+            {-box_sphere_bounds.BoxExtent.X, box_sphere_bounds.BoxExtent.Y, box_sphere_bounds.BoxExtent.Z}
+
+        };
+
+        for (int i = 0; i < 8; ++i)
+        {
+            Structs::FVector local = corners[i] + box_sphere_bounds.Origin;
+            Structs::FVector world = transform.TransformPosition(local);
+            Structs::FVector screen = Ue4::world_to_screen(world,
+                                                           minimal_view_info,
+                                                           screen_width,
+                                                           screen_height);
+            output_object[i] = screen;
+        }
 
         return true;
+    }
+
+    Structs::OverlayInfo compute_offscreen_enemy_overlay(const Structs::FVector &enemy_world_pos,
+                                                         const Structs::MinimalViewInfo &minimal_view_info,
+                                                         int screen_width,
+                                                         int screen_height)
+    {
+        Structs::OverlayInfo result;
+
+        ImVec2 screen_center(screen_width * 0.5f, screen_height * 0.5f);
+        float edge_padding_x = screen_width * 0.10f;
+        float edge_padding_y = screen_height * 0.20f;
+        float arrow_size = fminf(screen_width, screen_height) * 0.06f;
+        float arrow_angle_offset = 0.4f;
+
+        float yaw = minimal_view_info.Rotation.Yaw * (M_PI / 180.0f);
+        float pitch = minimal_view_info.Rotation.Pitch * (M_PI / 180.0f);
+
+        Structs::FVector camera_forward = {
+            cosf(pitch) * cosf(yaw),
+            cosf(pitch) * sinf(yaw),
+            sinf(pitch)};
+
+        Structs::FVector camera_right = {
+            -sinf(yaw),
+            cosf(yaw),
+            0.0f};
+
+        Structs::FVector camera_up = {
+            -sinf(pitch) * cosf(yaw),
+            -sinf(pitch) * sinf(yaw),
+            cosf(pitch)};
+
+        Structs::FVector to_enemy = enemy_world_pos - minimal_view_info.Location;
+        to_enemy.Normalize();
+
+        float forward_dot = Structs::FVector::Dot(camera_forward, to_enemy);
+        float right_dot = Structs::FVector::Dot(camera_right, to_enemy);
+        float up_dot = Structs::FVector::Dot(camera_up, to_enemy);
+
+        float dir_x, dir_y;
+
+        if (forward_dot > 0)
+        {
+            dir_x = right_dot / forward_dot;
+            dir_y = -up_dot / forward_dot;
+        }
+        else
+        {
+            dir_x = right_dot;
+            dir_y = -forward_dot;
+        }
+
+        float len = sqrtf(dir_x * dir_x + dir_y * dir_y);
+        if (len < 1e-4f)
+            return result;
+
+        dir_x /= len;
+        dir_y /= len;
+
+        float scale_x = (screen_width * 0.5f - edge_padding_x) / fabsf(dir_x);
+        float scale_y = (screen_height * 0.5f - edge_padding_y) / fabsf(dir_y);
+        float scale = fminf(scale_x, scale_y);
+
+        ImVec2 arrow_tip = {
+            screen_center.x + dir_x * scale,
+            screen_center.y + dir_y * scale};
+
+        float angle_screen = atan2f(dir_y, dir_x);
+
+        ImVec2 side1 = {
+            arrow_tip.x - cosf(angle_screen + arrow_angle_offset) * arrow_size,
+            arrow_tip.y - sinf(angle_screen + arrow_angle_offset) * arrow_size};
+
+        ImVec2 side2 = {
+            arrow_tip.x - cosf(angle_screen - arrow_angle_offset) * arrow_size,
+            arrow_tip.y - sinf(angle_screen - arrow_angle_offset) * arrow_size};
+
+        result.arrow = {arrow_tip, side1, side2};
+
+        return result;
     }
 
 }

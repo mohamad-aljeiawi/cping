@@ -6,8 +6,10 @@
 
 #include <cstdint>
 #include <math.h>
+#include <cmath>
 #include <string>
 #include <vector>
+#include "imgui/imgui.h"
 
 namespace Structs
 {
@@ -20,12 +22,33 @@ namespace Structs
         FVector() : X(0.f), Y(0.f), Z(0.f) {}
         FVector(float x, float y, float z) : X(x), Y(y), Z(z) {}
 
+        float Length() const
+        {
+            return std::sqrt(X * X + Y * Y + Z * Z);
+        }
+
+        FVector GetSafeNormal(float tolerance = 1e-6f) const
+        {
+            float length = Length();
+            if (length < tolerance)
+                return FVector(0.f, 0.f, 0.f);
+            return FVector(X / length, Y / length, Z / length);
+        }
+
         float Distance(const FVector &v) const
         {
             float dx = X - v.X;
             float dy = Y - v.Y;
             float dz = Z - v.Z;
-            return sqrt(dx * dx + dy * dy + dz * dz);
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        static float Distance(const FVector &a, const FVector &b)
+        {
+            float dx = a.X - b.X;
+            float dy = a.Y - b.Y;
+            float dz = a.Z - b.Z;
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
 
         FVector operator-(const FVector &v) const
@@ -47,23 +70,16 @@ namespace Structs
         {
             return lhs.X * rhs.X + lhs.Y * rhs.Y + lhs.Z * rhs.Z;
         }
+
         void Normalize()
         {
-            float length = sqrt(X * X + Y * Y + Z * Z);
+            float length = Length();
             if (length > 0.0001f)
             {
                 X /= length;
                 Y /= length;
                 Z /= length;
             }
-        }
-
-        static float Distance(const FVector &a, const FVector &b)
-        {
-            float dx = a.X - b.X;
-            float dy = a.Y - b.Y;
-            float dz = a.Z - b.Z;
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
     };
 
@@ -204,6 +220,14 @@ namespace Structs
                 position.X * m._12 + position.Y * m._22 + position.Z * m._32 + m._42,
                 position.X * m._13 + position.Y * m._23 + position.Z * m._33 + m._43);
         }
+
+        FVector ForwardVector() const
+        {
+            return FVector(
+                2 * (Rotation.X * Rotation.Z + Rotation.W * Rotation.Y),
+                2 * (Rotation.Y * Rotation.Z - Rotation.W * Rotation.X),
+                1 - 2 * (Rotation.X * Rotation.X + Rotation.Y * Rotation.Y));
+        }
     };
 
     struct MinimalViewInfo
@@ -240,6 +264,13 @@ namespace Structs
         int max;
     };
 
+    template <typename T>
+    struct TArrayRaw
+    {
+        uintptr_t data;
+        int count;
+        int max;
+    };
     struct FBoxSphereBounds
     {
         FVector Origin;
@@ -247,28 +278,99 @@ namespace Structs
         float SphereRadius;
     };
 
-    struct Request
+    struct EnemyArrow
     {
-        int ScreenWidth;
-        int ScreenHeight;
-        int ScreenOrientation;
+        ImVec2 tip;
+        ImVec2 side1;
+        ImVec2 side2;
     };
 
-    struct WorldObject
+    struct OverlayInfo
     {
-        char Name[MAX_NAME_LENGTH];
-        FVector Location;
-        FBoxSphereBounds BoxSphereBounds;
-        FTransform Transform;
-    };
-
-    struct Response
-    {
-        int Count;
-        MinimalViewInfo MinimalViewInfo;
-        WorldObject Objects[MAX_OBJECTS];
+        EnemyArrow arrow;
+        std::string enemy_label;
+        ImVec2 enemy_label_pos;
     };
 
 } // namespace Structs
+
+namespace GameObjects
+{
+    enum ObjectType
+    {
+        PLAYER = 0,
+        VEHICLE = 1,
+        LOOT = 2,
+        AIRDROP = 3
+    };
+
+    struct Player
+    {
+        Structs::FVector position;
+        Structs::FVector location;
+        Structs::FVector head;
+        Structs::FVector root;
+        Structs::FVector target;
+        float health;
+        float distance;
+        int team_id;
+        int weapon_id;
+        std::string name;
+        std::string state;
+        Structs::FVector bounds[8];
+        Structs::FVector bones[13];
+        bool is_bot;
+        bool is_alive;
+        bool is_on_screen;
+    };
+
+    struct Vehicle
+    {
+        Structs::FVector position;
+        Structs::FVector location;
+        float distance;
+        std::string name;
+        Structs::FVector bounds[8];
+        bool is_on_screen;
+    };
+
+    struct LootItem
+    {
+        Structs::FVector position;
+        Structs::FVector location;
+        float distance;
+        std::string name;
+        Structs::FVector bounds[8];
+        bool is_on_screen;
+        ObjectType type;
+    };
+
+    struct FrameData
+    {
+        Structs::MinimalViewInfo camera_view;
+        std::vector<Player> players;
+        std::vector<Vehicle> vehicles;
+        std::vector<LootItem> loot_items;
+        int count_enemies;
+        int display_width;
+        int display_height;
+        int display_orientation;
+
+        void clear()
+        {
+            players.clear();
+            vehicles.clear();
+            loot_items.clear();
+            count_enemies = 0;
+        }
+
+        void reserve_capacity()
+        {
+            players.reserve(100);
+            vehicles.reserve(50);
+            loot_items.reserve(200);
+        }
+    };
+}
 
 #endif // STRUCTS_H

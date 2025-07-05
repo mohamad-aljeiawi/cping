@@ -1,6 +1,9 @@
 #ifndef NATIVE_BRIDGE_H
 #define NATIVE_BRIDGE_H
 
+#include <string>
+#include "utils/enum.h"
+
 
 inline MenuElement parseMenuElement(const std::string &str) {
     if (str == "MENU_VISUAL_ESP_SKELETON") return MenuElement::MENU_VISUAL_ESP_SKELETON;
@@ -14,7 +17,7 @@ inline MenuElement parseMenuElement(const std::string &str) {
     return MenuElement::UNKNOWN;
 }
 
-void handleMenuEvent(const string &key, bool isChecked, float sliderValue) {
+void handleMenuEvent(const std::string &key, bool isChecked, float sliderValue) {
     MenuElement element = parseMenuElement(key);
 
     switch (element) {
