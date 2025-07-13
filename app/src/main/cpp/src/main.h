@@ -10,9 +10,9 @@
 
 #include "utils/socket_server.h"
 #include "utils/socket_client.h"
+#include "utils/enum.h"
 
 #include "native/imgui_renderer.h"
-#include "utils/native_bridge.h"
 
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_opengl3.h"

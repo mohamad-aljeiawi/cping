@@ -639,6 +639,7 @@ namespace Structs
     struct GameData
     {
         Player players[200];
+        MinimalViewInfo minimal_view_info;
         int count_enemies;
 
         void clear()
@@ -648,6 +649,7 @@ namespace Structs
                 players[i] = Player();
             }
             count_enemies = 0;
+            minimal_view_info = MinimalViewInfo();
         }
 
         void reserve_capacity()
@@ -662,35 +664,47 @@ namespace Structs
     enum class MenuElement
     {
         // Visual
-        MENU_VISUAL_ESP_NAME,
-        MENU_VISUAL_ESP_HEALTH,
         MENU_VISUAL_ESP_BOX,
-        MENU_VISUAL_ESP_DISTANCE,
+        MENU_VISUAL_ESP_HEALTH,
+        MENU_VISUAL_ESP_NAME,
         MENU_VISUAL_ESP_MARKS,
 
         // Combat
-        MENU_COMBAT_IS_AIMBOT,
-        MENU_COMBAT_AIMBOT_FOV,
-        MENU_COMBAT_AIMBOT_SENSITIVITY,
-        MENU_COMBAT_S,
+        MENU_COMBAT_IS_AIM,
+        MENU_COMBAT_AIM_FOV,
+        MENU_COMBAT_AIM_TOUCH_X,
+        MENU_COMBAT_AIM_TOUCH_Y,
+        MENU_COMBAT_AIM_TOUCH_RADIUS,
+        MENU_COMBAT_AIM_ZONE_FIRE_X,
+        MENU_COMBAT_AIM_ZONE_FIRE_Y,
+        MENU_COMBAT_AIM_ZONE_FIRE_RADIUS,
+        MENU_COMBAT_AIM_SENSITIVITY_FACTOR,
+        MENU_COMBAT_AIM_LATENCY_DRAG,
+        MENU_COMBAT_AIM_SWIPE_DURATION,
 
         UNKNOWN
     };
 
     struct MenuSettings
-    {  
-        bool visual_esp_name = true;
-        bool visual_esp_health = true;
+    {
+        // Visual settings
         bool visual_esp_box = true;
-        bool visual_esp_distance = true;
+        bool visual_esp_health = true;
+        bool visual_esp_name = true;
         bool visual_esp_marks = true;
 
-        bool combat_is_aimbot = true;
-        float combat_aimbot_fov = 300.0f;
-        float combat_aimbot_sensitivity = 1.0f;
-
-        // Add more settings as needed
-
+        // Combat settings
+        bool combat_is_aim = true;
+        float combat_aim_fov = 300.0f;
+        float combat_aim_touch_x = 1665.1f;
+        float combat_aim_touch_y = 475.0f;
+        float combat_aim_touch_radius = 100.0f;
+        float combat_aim_zone_fire_x = 380.0f;
+        float combat_aim_zone_fire_y = 180.0f;
+        float combat_aim_zone_fire_radius = 150.0f;
+        float combat_aim_sensitivity_factor = 0.04f;
+        float combat_aim_latency_drag = 0.13f;
+        float combat_aim_swipe_duration = 10.0f;
     };
 
 } // namespace Structs

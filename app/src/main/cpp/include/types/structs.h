@@ -8,128 +8,151 @@
 #include <vector>
 #include "imgui/imgui.h"
 
-namespace Structs {
-    struct FVector {
+namespace Structs
+{
+    struct FVector
+    {
         float X;
         float Y;
         float Z;
 
         FVector() : X(0.f), Y(0.f), Z(0.f) {}
-
         FVector(float x, float y, float z) : X(x), Y(y), Z(z) {}
 
-        float Length() const {
+        float Length() const
+        {
             return std::sqrt(X * X + Y * Y + Z * Z);
         }
 
-        FVector GetSafeNormal(float tolerance = 1e-6f) const {
+        FVector GetSafeNormal(float tolerance = 1e-6f) const
+        {
             float length = Length();
             if (length < tolerance)
                 return FVector(0.f, 0.f, 0.f);
             return FVector(X / length, Y / length, Z / length);
         }
 
-        float Distance(const FVector &v) const {
+        float Distance(const FVector &v) const
+        {
             float dx = X - v.X;
             float dy = Y - v.Y;
             float dz = Z - v.Z;
             return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
 
-        static float Distance(const FVector &a, const FVector &b) {
+        static float Distance(const FVector &a, const FVector &b)
+        {
             float dx = a.X - b.X;
             float dy = a.Y - b.Y;
             float dz = a.Z - b.Z;
             return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
 
-        FVector operator-(const FVector &v) const {
+        FVector operator-(const FVector &v) const
+        {
             return FVector(X - v.X, Y - v.Y, Z - v.Z);
         }
 
-        FVector operator+(const FVector &v) const {
+        FVector operator+(const FVector &v) const
+        {
             return FVector(X + v.X, Y + v.Y, Z + v.Z);
         }
 
-        FVector operator*(float scale) const {
+        FVector operator*(float scale) const
+        {
             return FVector(X * scale, Y * scale, Z * scale);
         }
 
-        FVector operator*(const FVector &v) const {
+        FVector operator*(const FVector &v) const
+        {
             return FVector(X * v.X, Y * v.Y, Z * v.Z);
         }
 
-        FVector operator/(const FVector &v) const {
+        FVector operator/(const FVector &v) const
+        {
             return FVector(X / v.X, Y / v.Y, Z / v.Z);
         }
 
-        static float Dot(const FVector &lhs, const FVector &rhs) {
+        static float Dot(const FVector &lhs, const FVector &rhs)
+        {
             return lhs.X * rhs.X + lhs.Y * rhs.Y + lhs.Z * rhs.Z;
         }
 
-        void Normalize() {
+        void Normalize()
+        {
             float length = Length();
-            if (length > 0.0001f) {
+            if (length > 0.0001f)
+            {
                 X /= length;
                 Y /= length;
                 Z /= length;
             }
         }
 
-        bool IsValid() const {
+        bool IsValid() const
+        {
             return X == X && Y == Y && Z == Z && // NaN check
                    std::isfinite(X) && std::isfinite(Y) && std::isfinite(Z);
         }
 
-        bool operator==(const FVector &v) const {
+        bool operator==(const FVector &v) const
+        {
             return X == v.X && Y == v.Y && Z == v.Z;
         }
     };
 
-    struct FVector2 {
+    struct FVector2
+    {
         float X;
         float Y;
 
         FVector2() : X(0.f), Y(0.f) {}
-
         FVector2(float x, float y) : X(x), Y(y) {}
 
-        float Distance(const FVector2 &v) const {
+        float Distance(const FVector2 &v) const
+        {
             float dx = X - v.X;
             float dy = Y - v.Y;
             return sqrt(dx * dx + dy * dy);
         }
 
-        FVector2 operator-(const FVector2 &v) const {
+        FVector2 operator-(const FVector2 &v) const
+        {
             return FVector2(X - v.X, Y - v.Y);
         }
 
-        FVector2 operator+(const FVector2 &v) const {
+        FVector2 operator+(const FVector2 &v) const
+        {
             return FVector2(X + v.X, Y + v.Y);
         }
 
-        FVector2 operator*(float scale) const {
+        FVector2 operator*(float scale) const
+        {
             return FVector2(X * scale, Y * scale);
         }
 
-        static float Dot(const FVector2 &lhs, const FVector2 &rhs) {
+        static float Dot(const FVector2 &lhs, const FVector2 &rhs)
+        {
             return lhs.X * rhs.X + lhs.Y * rhs.Y;
         }
     };
 
-    struct FRotator {
+    struct FRotator
+    {
         float Pitch;
         float Yaw;
         float Roll;
 
         FRotator() : Pitch(0.f), Yaw(0.f), Roll(0.f) {}
-
         FRotator(float pitch, float yaw, float roll) : Pitch(pitch), Yaw(yaw), Roll(roll) {}
     };
 
-    struct FQuaternion {
-        union {
-            struct {
+    struct FQuaternion
+    {
+        union
+        {
+            struct
+            {
                 float X;
                 float Y;
                 float Z;
@@ -139,10 +162,10 @@ namespace Structs {
         };
 
         FQuaternion() : X(0.f), Y(0.f), Z(0.f), W(1.f) {}
-
         FQuaternion(float x, float y, float z, float w) : X(x), Y(y), Z(z), W(w) {}
 
-        FQuaternion operator*(const FQuaternion &q) const {
+        FQuaternion operator*(const FQuaternion &q) const
+        {
             return FQuaternion(
                     W * q.X + X * q.W + Y * q.Z - Z * q.Y,
                     W * q.Y - X * q.Z + Y * q.W + Z * q.X,
@@ -150,36 +173,45 @@ namespace Structs {
                     W * q.W - X * q.X - Y * q.Y - Z * q.Z);
         }
 
-        FQuaternion operator+(const FQuaternion &q) const {
+        FQuaternion operator+(const FQuaternion &q) const
+        {
             return FQuaternion(X + q.X, Y + q.Y, Z + q.Z, W + q.W);
         }
 
-        FQuaternion operator-(const FQuaternion &q) const {
+        FQuaternion operator-(const FQuaternion &q) const
+        {
             return FQuaternion(X - q.X, Y - q.Y, Z - q.Z, W - q.W);
         }
 
-        FQuaternion operator/(float scalar) const {
-            if (std::abs(scalar) > 0.0001f) {
+        FQuaternion operator/(float scalar) const
+        {
+            if (std::abs(scalar) > 0.0001f)
+            {
                 return FQuaternion(X / scalar, Y / scalar, Z / scalar, W / scalar);
             }
             return *this;
         }
 
-        FQuaternion operator*(float scalar) const {
+        FQuaternion operator*(float scalar) const
+        {
             return FQuaternion(X * scalar, Y * scalar, Z * scalar, W * scalar);
         }
 
-        FQuaternion Conjugate() const {
+        FQuaternion Conjugate() const
+        {
             return FQuaternion(-X, -Y, -Z, W);
         }
 
-        float Magnitude() const {
+        float Magnitude() const
+        {
             return std::sqrt(X * X + Y * Y + Z * Z + W * W);
         }
 
-        FQuaternion operator/(const FQuaternion &q) const {
+        FQuaternion operator/(const FQuaternion &q) const
+        {
             float magnitudeSquared = q.X * q.X + q.Y * q.Y + q.Z * q.Z + q.W * q.W;
-            if (magnitudeSquared > 0.0001f) {
+            if (magnitudeSquared > 0.0001f)
+            {
                 FQuaternion conjugate = q.Conjugate();
                 FQuaternion inverse = conjugate / magnitudeSquared;
                 return (*this) * inverse;
@@ -187,9 +219,11 @@ namespace Structs {
             return *this;
         }
 
-        void Normalize() {
+        void Normalize()
+        {
             float length = std::sqrt(X * X + Y * Y + Z * Z + W * W);
-            if (length > 0.0001f) {
+            if (length > 0.0001f)
+            {
                 X /= length;
                 Y /= length;
                 Z /= length;
@@ -197,7 +231,8 @@ namespace Structs {
             }
         }
 
-        FQuaternion &operator+=(const FQuaternion &q) {
+        FQuaternion &operator+=(const FQuaternion &q)
+        {
             X += q.X;
             Y += q.Y;
             Z += q.Z;
@@ -205,7 +240,8 @@ namespace Structs {
             return *this;
         }
 
-        FQuaternion &operator-=(const FQuaternion &q) {
+        FQuaternion &operator-=(const FQuaternion &q)
+        {
             X -= q.X;
             Y -= q.Y;
             Z -= q.Z;
@@ -213,7 +249,8 @@ namespace Structs {
             return *this;
         }
 
-        FQuaternion &operator*=(float scalar) {
+        FQuaternion &operator*=(float scalar)
+        {
             X *= scalar;
             Y *= scalar;
             Z *= scalar;
@@ -221,8 +258,10 @@ namespace Structs {
             return *this;
         }
 
-        FQuaternion &operator/=(float scalar) {
-            if (std::abs(scalar) > 0.0001f) {
+        FQuaternion &operator/=(float scalar)
+        {
+            if (std::abs(scalar) > 0.0001f)
+            {
                 X /= scalar;
                 Y /= scalar;
                 Z /= scalar;
@@ -231,37 +270,40 @@ namespace Structs {
             return *this;
         }
 
-        bool operator==(const FQuaternion &q) const {
+        bool operator==(const FQuaternion &q) const
+        {
             return X == q.X && Y == q.Y && Z == q.Z && W == q.W;
         }
     };
 
-    struct FString {
+    struct FString
+    {
         uintptr_t data;
         int count;
         int max;
     };
 
-    struct FMatrix {
+    struct FMatrix
+    {
         float M[4][4];
     };
 
-    struct D3DMatrix {
+    struct D3DMatrix
+    {
         float _11, _12, _13, _14;
         float _21, _22, _23, _24;
         float _31, _32, _33, _34;
         float _41, _42, _43, _44;
     };
 
-    struct FTransform {
+    struct FTransform
+    {
         FQuaternion Rotation;
         FVector Translation;
         char pad[0x4];
         FVector Scale3D;
 
-        // المنشئات
-        FTransform() : Rotation(0.f, 0.f, 0.f, 1.f), Translation(0.f, 0.f, 0.f),
-                       Scale3D(1.f, 1.f, 1.f) {}
+        FTransform() : Rotation(0.f, 0.f, 0.f, 1.f), Translation(0.f, 0.f, 0.f), Scale3D(1.f, 1.f, 1.f) {}
 
         FTransform(const FQuaternion &rotation, const FVector &translation, const FVector &scale)
                 : Rotation(rotation), Translation(translation), Scale3D(scale) {}
@@ -269,7 +311,8 @@ namespace Structs {
         FTransform(const FVector &translation)
                 : Rotation(0.f, 0.f, 0.f, 1.f), Translation(translation), Scale3D(1.f, 1.f, 1.f) {}
 
-        D3DMatrix ToMatrixWithScale() const {
+        D3DMatrix ToMatrixWithScale() const
+        {
             D3DMatrix m;
 
             float x2 = Rotation.X + Rotation.X;
@@ -312,7 +355,8 @@ namespace Structs {
             return m;
         }
 
-        FVector TransformPosition(const FVector &v) const {
+        FVector TransformPosition(const FVector &v) const
+        {
             FVector scaled = v * Scale3D;
 
             FVector rotated = RotateVector(scaled);
@@ -320,17 +364,20 @@ namespace Structs {
             return rotated + Translation;
         }
 
-        FVector TransformPositionNoScale(const FVector &v) const {
+        FVector TransformPositionNoScale(const FVector &v) const
+        {
             FVector rotated = RotateVector(v);
 
             return rotated + Translation;
         }
 
-        FVector TransformDirection(const FVector &v) const {
+        FVector TransformDirection(const FVector &v) const
+        {
             return RotateVector(v);
         }
 
-        FVector InverseTransformPosition(const FVector &v) const {
+        FVector InverseTransformPosition(const FVector &v) const
+        {
             FVector translated = v - Translation;
 
             FVector rotated = InverseRotateVector(translated);
@@ -341,11 +388,13 @@ namespace Structs {
                     Scale3D.Z != 0.0f ? rotated.Z / Scale3D.Z : 0.0f);
         }
 
-        FVector InverseTransformDirection(const FVector &v) const {
+        FVector InverseTransformDirection(const FVector &v) const
+        {
             return InverseRotateVector(v);
         }
 
-        FVector RotateVector(const FVector &v) const {
+        FVector RotateVector(const FVector &v) const
+        {
             // q * v * q^-1 (Quaternion rotation formula)
             float x2 = Rotation.X + Rotation.X;
             float y2 = Rotation.Y + Rotation.Y;
@@ -367,7 +416,8 @@ namespace Structs {
                     v.X * (xz2 - wy2) + v.Y * (yz2 + wx2) + v.Z * (1.0f - (xx2 + yy2)));
         }
 
-        FVector InverseRotateVector(const FVector &v) const {
+        FVector InverseRotateVector(const FVector &v) const
+        {
             FQuaternion invRotation = Rotation.Conjugate();
 
             float x2 = invRotation.X + invRotation.X;
@@ -390,7 +440,8 @@ namespace Structs {
                     v.X * (xz2 - wy2) + v.Y * (yz2 + wx2) + v.Z * (1.0f - (xx2 + yy2)));
         }
 
-        FTransform Concatenate(const FTransform &parent) const {
+        FTransform Concatenate(const FTransform &parent) const
+        {
             FTransform result;
 
             result.Rotation = Rotation * parent.Rotation;
@@ -404,7 +455,8 @@ namespace Structs {
             return result;
         }
 
-        FTransform Inverse() const {
+        FTransform Inverse() const
+        {
             FTransform result;
 
             result.Rotation = Rotation.Conjugate();
@@ -420,28 +472,32 @@ namespace Structs {
             return result;
         }
 
-        FVector ForwardVector() const {
+        FVector ForwardVector() const
+        {
             return FVector(
                     2.0f * (Rotation.X * Rotation.Z + Rotation.W * Rotation.Y),
                     2.0f * (Rotation.Y * Rotation.Z - Rotation.W * Rotation.X),
                     1.0f - 2.0f * (Rotation.X * Rotation.X + Rotation.Y * Rotation.Y));
         }
 
-        FVector RightVector() const {
+        FVector RightVector() const
+        {
             return FVector(
                     1.0f - 2.0f * (Rotation.Y * Rotation.Y + Rotation.Z * Rotation.Z),
                     2.0f * (Rotation.X * Rotation.Y + Rotation.W * Rotation.Z),
                     2.0f * (Rotation.X * Rotation.Z - Rotation.W * Rotation.Y));
         }
 
-        FVector UpVector() const {
+        FVector UpVector() const
+        {
             return FVector(
                     2.0f * (Rotation.X * Rotation.Y - Rotation.W * Rotation.Z),
                     1.0f - 2.0f * (Rotation.X * Rotation.X + Rotation.Z * Rotation.Z),
                     2.0f * (Rotation.Y * Rotation.Z + Rotation.W * Rotation.X));
         }
 
-        bool IsValid() const {
+        bool IsValid() const
+        {
             return Translation.IsValid() &&
                    Rotation.X == Rotation.X && Rotation.Y == Rotation.Y &&
                    Rotation.Z == Rotation.Z && Rotation.W == Rotation.W && // NaN check
@@ -451,98 +507,130 @@ namespace Structs {
                    std::abs(Scale3D.Z) > 0.0001f;
         }
 
-        void SetIdentity() {
+        void SetIdentity()
+        {
             Rotation = FQuaternion(0.f, 0.f, 0.f, 1.f);
             Translation = FVector(0.f, 0.f, 0.f);
             Scale3D = FVector(1.f, 1.f, 1.f);
         }
 
-        bool operator==(const FTransform &other) const {
+        bool operator==(const FTransform &other) const
+        {
             return (Translation == other.Translation) &&
                    (Rotation == other.Rotation) &&
                    (Scale3D == other.Scale3D);
         }
 
-        bool operator!=(const FTransform &other) const {
+        bool operator!=(const FTransform &other) const
+        {
             return !(*this == other);
         }
 
-        friend FTransform operator*(const FTransform &a, const FTransform &b) {
+        friend FTransform operator*(const FTransform &a, const FTransform &b)
+        {
             return a.Concatenate(b);
         }
     };
 
-    struct MinimalViewInfo {
+    struct MinimalViewInfo
+    {
         FVector Location;
+        FVector LocationLocalSpace;
         FRotator Rotation;
         float FOV;
     };
 
-    struct CameraCacheEntry {
+    struct CameraCacheEntry
+    {
         float TimeStamp;
         char chunks[0xC];
         MinimalViewInfo POV;
     };
 
-    struct Actors {
-        uint64_t enc_1, enc_2;
-        uint64_t enc_3, enc_4;
-    };
-
-    struct Chunk {
-        uint32_t val_1, val_2, val_3, val_4;
-        uint32_t val_5, val_6, val_7, val_8;
-    };
-
-    struct TArray {
+    struct TArray
+    {
         uintptr_t data;
         int count;
         int max;
     };
 
-    template<typename T>
-    struct TArrayRaw {
+    template <typename T>
+    struct TArrayRaw
+    {
         uintptr_t data;
         int count;
         int max;
     };
 
-    struct FBoxSphereBounds {
+    struct FBoxSphereBounds
+    {
         struct FVector Origin;
         struct FVector BoxExtent;
         float SphereRadius;
     };
 
-    struct UCapsuleComponent {
+    struct UCapsuleComponent
+    {
         float CapsuleHalfHeight;
         float CapsuleRadius;
     };
 
-    struct FGPGameplayAttributeData {
+    // custom structs
+    struct Actors
+    {
+        uint64_t enc_1, enc_2;
+        uint64_t enc_3, enc_4;
+    };
+
+    struct Chunk
+    {
+        uint32_t val_1, val_2, val_3, val_4;
+        uint32_t val_5, val_6, val_7, val_8;
+    };
+
+    struct FGPGameplayAttributeData
+    {
         uint8_t Pad_0x0[0x8];
         float BaseValue;
         float CurrentValue;
     };
 
-    struct FGameplayAttributeData {
+    struct FGameplayAttributeData
+    {
         uint8_t Pad_0x0[0x8]; // 0x0(0x8)
         float BaseValue;      // 0x8(0x4)
         float CurrentValue;   // 0xC(0x4)
     };
 
-    struct EnemyArrow {
+    struct RichCurveKey
+    {
+        uint8_t InterpMode;        //[Offset: 0x0, Size: 0x1]
+        uint8_t TangentMode;       //[Offset: 0x1, Size: 0x1]
+        uint8_t TangentWeightMode; //[Offset: 0x2, Size: 0x1]
+        float Time;                //[Offset: 0x4, Size: 0x4]
+        float Value;               //[Offset: 0x8, Size: 0x4]
+        float ArriveTangent;       //[Offset: 0xc, Size: 0x4]
+        float ArriveTangentWeight; //[Offset: 0x10, Size: 0x4]
+        float LeaveTangent;        //[Offset: 0x14, Size: 0x4]
+        float LeaveTangentWeight;  //[Offset: 0x18, Size: 0x4]
+    };
+
+    struct EnemyArrow
+    {
         ImVec2 tip;
         ImVec2 side1;
         ImVec2 side2;
     };
 
-    struct OverlayInfo {
+    struct OverlayInfo
+    {
         EnemyArrow arrow;
         std::string enemy_label;
         ImVec2 enemy_label_pos;
     };
 
-    struct Player {
+    struct Player
+    {
         FVector position;
         FVector location;
         FVector head;
@@ -562,22 +650,51 @@ namespace Structs {
         bool is_on_screen;
     };
 
-    struct GameData {
+    struct GameData
+    {
         Player players[200];
+        MinimalViewInfo minimal_view_info;
         int count_enemies;
 
-        void clear() {
-            for (int i = 0; i < 200; i++) {
+        void clear()
+        {
+            for (int i = 0; i < 200; i++)
+            {
                 players[i] = Player();
             }
             count_enemies = 0;
+            minimal_view_info = MinimalViewInfo();
         }
 
-        void reserve_capacity() {
-            for (int i = 0; i < 200; i++) {
+        void reserve_capacity()
+        {
+            for (int i = 0; i < 200; i++)
+            {
                 players[i] = Player();
             }
         }
+    };
+
+    struct MenuSettings
+    {
+        // Visual settings
+        bool visual_esp_box = true;
+        bool visual_esp_health = true;
+        bool visual_esp_name = true;
+        bool visual_esp_marks = true;
+
+        // Combat settings
+        bool combat_is_aim = true;
+        float combat_aim_fov = 300.0f;
+        float combat_aim_touch_x = 1665.1f;
+        float combat_aim_touch_y = 475.0f;
+        float combat_aim_touch_radius = 100.0f;
+        float combat_aim_zone_fire_x = 380.0f;
+        float combat_aim_zone_fire_y = 180.0f;
+        float combat_aim_zone_fire_radius = 150.0f;
+        float combat_aim_sensitivity_factor = 0.04f;
+        float combat_aim_latency_drag = 0.13f;
+        float combat_aim_swipe_duration = 10.0f;
     };
 
 } // namespace Structs

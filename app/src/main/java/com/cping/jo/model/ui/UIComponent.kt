@@ -24,7 +24,6 @@ sealed class UIComponent {
         val min: Float,
         val max: Float,
         val value: Float,
-        val steps: Int,
         val onValueChange: (Float) -> Unit
     ) : UIComponent()
 

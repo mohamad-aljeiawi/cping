@@ -1,5 +1,6 @@
 package com.cping.jo.screens.menu
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -9,6 +10,7 @@ import com.cping.jo.model.ui.UIComponent
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun DynamicSection(components: List<UIComponent>) {
     LazyColumn(
@@ -83,16 +85,27 @@ fun DynamicSection(components: List<UIComponent>) {
 
                     is UIComponent.Slider -> {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = component.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = component.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = String.format("%.3f", component.value),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
                             Slider(
                                 value = component.value,
                                 onValueChange = component.onValueChange,
                                 valueRange = component.min..component.max,
-                                steps = component.steps
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
