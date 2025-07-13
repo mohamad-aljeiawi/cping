@@ -18,24 +18,34 @@
     <string name="register_cta">Create your account for free now</string>
 
     <!-- +++++++++Menu Screen++++++++++-->
-    <!-- Visual-->
-    <string name="menu_visual_title">Visual</string>
-    <string name="menu_visual_title_header">Visual Player</string>
-    <string name="menu_visual_esp_group_title">ESP</string>
-    <string name="menu_visual_esp_skeleton">Skeleton + Line</string>
-    <string name="menu_visual_esp_name">Name + Team Color</string>
-    <string name="menu_visual_esp_health">Health</string>
-    <string name="menu_visual_esp_box">Box</string>
-    <string name="menu_visual_esp_distance">Distance ESP</string>
-    <!-- Combat-->
+    <!-- Visual -->
+    <string name="menu_visual_title">ESP</string>
+    <string name="menu_visual_title_header">ESP Systems</string>
+
+    <string name="menu_visual_esp_group_title">ESP Settings</string>
+    <string name="menu_visual_esp_box">Player Box</string>
+    <string name="menu_visual_esp_health">Health Indicator</string>
+    <string name="menu_visual_esp_name">Name &amp; Distance</string>
+    <string name="menu_visual_esp_marks">Enemy Position</string>
+
+    <!-- Combat -->
     <string name="menu_combat_title">Combat</string>
-    <string name="menu_combat_title_header">Combat Player</string>
-    <string name="menu_combat_is_aimbot">Aimbot</string>
-    <string name="menu_combat_fov">FOV</string>
-    <string name="menu_combat_sensitivity">Sensitivity</string>
-    <!-- Setting-->
-    <string name="menu_setting_title">Setting</string>
-    <string name="menu_setting_title_header">Settings</string>
+    <string name="menu_combat_title_header">Combat Systems</string>
+
+    <string name="menu_combat_is_aim">Enable Auto-Aim</string>
+    <string name="menu_combat_aim_fov">Targeting Field of View</string>
+
+    <string name="menu_combat_aim_touch_x">Touch Position (X)</string>
+    <string name="menu_combat_aim_touch_y">Touch Position (Y)</string>
+    <string name="menu_combat_aim_touch_radius">Touch Radius</string>
+
+    <string name="menu_combat_aim_zone_fire_x">Fire Zone Position (X)</string>
+    <string name="menu_combat_aim_zone_fire_y">Fire Zone Position (Y)</string>
+    <string name="menu_combat_aim_zone_fire_radius">Fire Zone Radius</string>
+
+    <string name="menu_combat_aim_sensitivity_factor">Aim Sensitivity Factor</string>
+    <string name="menu_combat_aim_latency_drag">Aim Offset for Latency Compensation</string>
+    <string name="menu_combat_aim_swipe_duration">Auto-Swipe Duration</string>
 
 
 </resources>

@@ -6,8 +6,7 @@
 namespace Offset
 {
     //-- Base Offset G-Objects
-    constexpr uintptr_t g_name = 0x18bacd80;
-    constexpr uintptr_t g_world = 0x188c8a48;
+    constexpr uintptr_t g_world = 0x1ad79b68;
     //-- Base Offset UWorld
     constexpr uintptr_t persistent_level = 0xF8;
     constexpr uintptr_t u_level_to_a_actors = 0x98;
@@ -37,11 +36,12 @@ namespace Offset
     constexpr uintptr_t control_rotation = 0x3D8; // struct FRotator ControlRotation;
 
     // struct APlayerState : AInfo
-    constexpr uintptr_t pawn = 0x3F8; // struct APawn* PawnPrivate;
+    constexpr uintptr_t pawn = 0x3F8;        // struct APawn* PawnPrivate;
+    constexpr uintptr_t player_name = 0x378; // struct FString PlayerNamePrivate;
 
     // struct AGPCharacterBase : ACharacterBase
-    constexpr uintptr_t health_comp = 0xEC8; //  struct UGPHealthDataComponent* HealthComp;
-    constexpr uintptr_t team_comp = 0xED0;   // struct UGPTeamComponent* TeamComp;
+    constexpr uintptr_t health_comp = 0xEE0; //  struct UGPHealthDataComponent* HealthComp;
+    constexpr uintptr_t team_comp = 0xEE8;   // struct UGPTeamComponent* TeamComp;
 
     // struct UGPHealthDataComponent : UGPAttributeBaseComponent
     constexpr uintptr_t health_set = 0x248; // struct UGPAttributeSetHealth* HealthSet;
@@ -59,33 +59,36 @@ namespace Offset
     constexpr uintptr_t character_movement = 0x3D8; // struct UCharacterMovementComponent* CharacterMovement;
 
     // struct USkeletalMeshComponent : USkinnedMeshComponent
-    constexpr uintptr_t cached_bone_space_transforms = 0x9C8; // struct TArray<struct FTransform> CachedComponentSpaceTransforms;
+    constexpr uintptr_t cached_bone_space_transforms = 0x9D8; // struct TArray<struct FTransform> CachedComponentSpaceTransforms;
 
     // struct AActor : UObject
     constexpr uintptr_t root_component = 0x180; // struct USceneComponent* RootComponent;
 
     // struct UCapsuleComponent : UShapeComponent
-    constexpr uintptr_t capsule_half_height = 0x580; // float CapsuleHalfHeight;
-    constexpr uintptr_t capsule_radius = 0x584;      // float CapsuleRadius;
+    constexpr uintptr_t capsule_half_height = 0x590; // float CapsuleHalfHeight;
+    constexpr uintptr_t capsule_radius = 0x594;      // float CapsuleRadius;
+
+    // struct UMovementComponent : UActorComponent
+    constexpr uintptr_t velocity = 0x10C; // struct FVector Velocity;
 
     // struct UCharacterMovementComponent : UPawnMovementComponent
-    constexpr uintptr_t last_update_velocity = 0x2AC; // struct FVector LastUpdateVelocity;
-    constexpr uintptr_t gravity_scale = 0x198;        // float GravityScale;
+    constexpr uintptr_t gravity_scale = 0x198; // float GravityScale;
+    constexpr uintptr_t acceleration = 0x27C;  // struct FVector Acceleration;
 
     // struct AGPCharacterBase : ACharacterBase
-    constexpr uintptr_t cache_cur_weapon = 0x14C0; // struct AWeaponBase* CacheCurWeapon;
+    constexpr uintptr_t cache_cur_weapon = 0x1540; // struct AWeaponBase* CacheCurWeapon;
 
     // struct AWeaponBase : AGPWeaponBase
-    constexpr uintptr_t current_modular_weapon_desc = 0xA70; // struct UGPModularWeaponDesc* CurrentModularWeaponDesc;
-    constexpr uintptr_t cached_attribute_set_fire_mode = 0x1110; // struct UGPWeaponAttributeSetFireMode* CachedAttributeSetFireMode;
-    constexpr uintptr_t weapon_id = 0x818;                       // uint64_t WeaponID;
-    constexpr uintptr_t weapon_equip_position = 0x828;           // uint32_t WeaponEquipPosition;
+    constexpr uintptr_t current_modular_weapon_desc = 0xA68;     // struct UGPModularWeaponDesc* CurrentModularWeaponDesc;
+    constexpr uintptr_t cached_attribute_set_fire_mode = 0x1108; // struct UGPWeaponAttributeSetFireMode* CachedAttributeSetFireMode;
+    constexpr uintptr_t weapon_id = 0x810;                       // uint64_t WeaponID;
+    constexpr uintptr_t weapon_equip_position = 0x820;           // uint32_t WeaponEquipPosition;
 
-    // struct UGPWeaponAttributeSetFireMode : UGPAttributeSetBase
-    constexpr uintptr_t fire_interval = 0x48;                     // struct FGameplayAttributeData FireInterval;
-    constexpr uintptr_t burst_interval = 0xD8;                    // struct struct FGameplayAttributeData BurstInterval;
-    constexpr uintptr_t burst_fire_bullet_count = 0x128;          // struct FGameplayAttributeData BurstFireBulletCount;
-    constexpr uintptr_t projectile_initial_velocity_rate = 0x1D8; // struct FGameplayAttributeData ProjectileInitialVelocityRate;
+    // // struct UGPWeaponAttributeSetFireMode : UGPAttributeSetBase
+    // constexpr uintptr_t fire_interval = 0x48;                     // struct FGameplayAttributeData FireInterval;
+    // constexpr uintptr_t burst_interval = 0xD8;                    // struct struct FGameplayAttributeData BurstInterval;
+    // constexpr uintptr_t burst_fire_bullet_count = 0x128;          // struct FGameplayAttributeData BurstFireBulletCount;
+    // constexpr uintptr_t projectile_initial_velocity_rate = 0x1D8; // struct FGameplayAttributeData ProjectileInitialVelocityRate;
 
 }
 #endif // OFFSETS_H

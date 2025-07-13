@@ -9,9 +9,11 @@ import com.cping.jo.repository.AppRepository
 import com.cping.jo.service.OverlayMenu
 import com.cping.jo.service.OverlayView
 import com.cping.jo.utils.SharedPrefManager
+import com.cping.jo.utils.Utils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import jakarta.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 @SuppressLint("SdCardPath")
@@ -25,14 +27,11 @@ class MainViewModel @Inject constructor(
     init {
 
         viewModelScope.launch {
+//            processBuilderShell("/data/local/tmp/cping_memory_pubg")
             OverlayView.showOverlay(context)
-//            Utils.processBuilderShell("monkey -p com.tencent.ig -c android.intent.category.LAUNCHER 1")
-//            delay(100)
-//            launch { Utils.processBuilderShell("/data/local/tmp/cping_memory") }
+//            processBuilderShell("monkey -p com.tencent.ig -c android.intent.category.LAUNCHER 1")
             OverlayMenu.showOverlay(context)
         }
-
-
     }
 
     fun processBuilderShell(command: String) {

@@ -4,6 +4,9 @@
 #include <string>
 #include <dirent.h>
 #include <imgui/imgui.h>
+#include <vector>
+#include <string_view>
+#include <cstdint>
 
 namespace Utils
 {
@@ -15,6 +18,11 @@ namespace Utils
     bool is_package_running(const std::string &package_name);
     void control_frame_rate(float target_fps);
     std::string safe_utf16_to_utf8(const char16_t *data, int len);
+    std::vector<uint8_t> hex_to_bytes(std::string_view hex);
+    std::vector<uint8_t> aes_ecb_decrypt(const std::vector<uint8_t> &enc, const std::vector<uint8_t> &key);
+    void dump_vector_as_cpp_array(const std::vector<uint8_t> &data, const std::string &var_name, const std::string &file_path);
+    std::string random_string(size_t length);
+    void decrypt_and_run(const std::vector<uint8_t> &enc, const std::vector<uint8_t> &key);
     float calculateTextSize(float distance, float minDistance, float maxDistance, float minSize, float maxSize, float exponent);
     std::string get_farsi_text(std::string text);
     void add_text_center(ImDrawList *draw_list, std::string text, float size, ImVec2 position, ImU32 color, bool center, float gap);

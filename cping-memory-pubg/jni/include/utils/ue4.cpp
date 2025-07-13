@@ -161,6 +161,27 @@ namespace Ue4
         return matrix;
     }
 
+    Structs::FVector rotator_to_vector(const Structs::FRotator &r)
+    {
+        float DEG2RAD = 3.14159265f / 180.f;
+        float cp = std::cos(r.Pitch * DEG2RAD);
+        float sp = std::sin(r.Pitch * DEG2RAD);
+        float cy = std::cos(r.Yaw * DEG2RAD);
+        float sy = std::sin(r.Yaw * DEG2RAD);
+
+        return Structs::FVector(cp * cy, // X
+                                cp * sy, // Y
+                                sp);     // Z
+    }
+
+    Structs::FVector cross(const Structs::FVector &a, const Structs::FVector &b)
+    {
+        return Structs::FVector(
+            a.Y * b.Z - a.Z * b.Y,
+            a.Z * b.X - a.X * b.Z,
+            a.X * b.Y - a.Y * b.X);
+    }
+
     Structs::FVector world_to_screen(Structs::FVector worldLocation, Structs::MinimalViewInfo camViewInfo, int screenWidth, int screenHeight)
     {
         Structs::FMatrix tempMatrix = rotator_to_matrix(camViewInfo.Rotation);
@@ -197,17 +218,15 @@ namespace Ue4
     Structs::FTransform get_bone_transform(uintptr_t entity, int idx, pid_t process_pid)
     {
         uintptr_t mesh = Memory::Read<uintptr_t>(entity + Offset::mesh, process_pid);
-        if (!mesh)
-            return {};
-
-        Structs::TArrayRaw<Structs::FTransform> bone_array = Memory::Read<Structs::TArrayRaw<Structs::FTransform>>(mesh + Offset::cached_bone_space_transforms, process_pid);
-
-        if (bone_array.count <= idx || bone_array.data == 0)
-            return {};
-
-        Structs::FTransform bone = Memory::Read<Structs::FTransform>(bone_array.data + idx * sizeof(Structs::FTransform), process_pid);
-
-        return bone;
+        if (mesh)
+        {
+            uintptr_t bones = Memory::Read<uintptr_t>(mesh + Offset::static_mesh, process_pid);
+            if (bones)
+            {
+                return Memory::Read<Structs::FTransform>(bones + (idx * 48), process_pid);
+            }
+        }
+        return {};
     }
 
     // Unified function to process object bounds and create 3D boxes

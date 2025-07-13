@@ -7,22 +7,30 @@ std::atomic<int> ready_buffer_index{-1};
 
 std::thread socket_thread_handle;
 std::thread aimbot_thread_handle;
+std::thread drawing_thread_handle;
 
 std::atomic<uintptr_t> lib_base{0};
 std::atomic<pid_t> target_pid{0};
 std::atomic<bool> is_running{true};
 std::atomic<float> frame_rate{60.0f};
-
 std::atomic<bool> aim_is_weapon_firing{false};
-std::atomic<bool> aim_is_aiming{true};
+
+std::atomic<bool> aim_is_aim{false};
 std::atomic<float> aim_fov{300.0f};
-std::atomic<float> aim_shooting{7.0f};
 std::atomic<float> aim_touch_x{1665.1f};
 std::atomic<float> aim_touch_y{475.0f};
 std::atomic<float> aim_touch_radius{100.0f};
 std::atomic<float> aim_zone_fire_x{380.0f};
 std::atomic<float> aim_zone_fire_y{180.0f};
 std::atomic<float> aim_zone_fire_radius{150.0f};
+std::atomic<float> aim_sensitivity_factor{0.04f};
+std::atomic<float> aim_latency_drag{0.13f};
+std::atomic<float> aim_swipe_duration{10.0f};
+
+std::atomic<bool> visual_box{false};
+std::atomic<bool> visual_health{false};
+std::atomic<bool> visual_name{false};
+std::atomic<bool> visual_marks{false};
 
 void socket_thread()
 {
@@ -31,7 +39,6 @@ void socket_thread()
     const char *socket_name = "cping_socket_server";
     while (is_running.load(std::memory_order_relaxed))
     {
-        Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
         if (!socket_connected)
         {
             if (socket_client.connect_to_server(socket_name))
@@ -50,17 +57,24 @@ void socket_thread()
             int read_idx = ready_buffer_index.load(std::memory_order_acquire);
             const auto &game_data = game_buffers[read_idx];
 
-            if (!socket_client.send_raw(&game_data, sizeof(Structs::GameData)))
-            {
-                socket_connected = false;
-                socket_client.close_connection();
-                continue;
-            }
-        }
-
-        if (!EncryptedBranding::verify_branding_integrity())
-        {
-            exit(13);
+            socket_client.send_raw(&game_data, sizeof(Structs::GameData));
+            Structs::MenuSettings menu_settings;
+            socket_client.receive_raw(&menu_settings, sizeof(Structs::MenuSettings));
+            visual_box.store(menu_settings.visual_esp_box);
+            visual_health.store(menu_settings.visual_esp_health);
+            visual_name.store(menu_settings.visual_esp_name);
+            visual_marks.store(menu_settings.visual_esp_marks);
+            aim_is_aim.store(menu_settings.combat_is_aim);
+            aim_fov.store(menu_settings.combat_aim_fov);
+            aim_touch_x.store(menu_settings.combat_aim_touch_x);
+            aim_touch_y.store(menu_settings.combat_aim_touch_y);
+            aim_touch_radius.store(menu_settings.combat_aim_touch_radius);
+            aim_zone_fire_x.store(menu_settings.combat_aim_zone_fire_x);
+            aim_zone_fire_y.store(menu_settings.combat_aim_zone_fire_y);
+            aim_zone_fire_radius.store(menu_settings.combat_aim_zone_fire_radius);
+            aim_sensitivity_factor.store(menu_settings.combat_aim_sensitivity_factor);
+            aim_latency_drag.store(menu_settings.combat_aim_latency_drag);
+            aim_swipe_duration.store(menu_settings.combat_aim_swipe_duration);
         }
     }
 
@@ -71,447 +85,312 @@ void socket_thread()
     }
 }
 
-/******************************************************************
- *  Aimbot Thread – الإصدار النهائي مع:
- *    • نموذج السحب التدريجي (Incremental Pull)
- *    • حماية حد دائرة اللمس
- *    • تعويض تسارع اللمس التلقائي (Auto-Tuning Velocity Factor)
- ******************************************************************/
 void aimbot_thread()
 {
-    /* حالة اللمس الحالي */
-    bool isDown = false;
+
+    const float min_sensitivity = aim_sensitivity_factor.load();
+    const float max_sensitivity = aim_sensitivity_factor.load() * 1.5f;
+    const float precision_radius = 20.0f;
+    const float speed_radius = 150.0f;
+    const float distance_to_target = aim_fov.load();
+
+    bool is_touching = false;
     float tx = aim_touch_x.load(std::memory_order_relaxed);
     float ty = aim_touch_y.load(std::memory_order_relaxed);
 
-    /* ثوابت الإحساس الأساسية */
-    constexpr float kBaseSpeed = 0.25f;
-    constexpr float kMinSpeed = 0.05f;
-    constexpr float kSpeedFalloffRange = 100.f;
-
-    constexpr float kMaxSingleMove = 40.f;
-    constexpr float kDeadzone = 1.5f;
-    constexpr float kPredictionFactor = 0.12f;
-
-    constexpr float kFovEdgeThreshold = 0.8f;
-    constexpr float kEdgeDampingFactor = 0.4f;
-
-    constexpr float kMinWorldDist = 100.f;
-    constexpr float kMaxWorldDist = 400.f;
-    constexpr float kMaxDistanceDamping = 2.f;
-
-    /* تعويض تسارع اللمس (Auto-Tuning) */
-    float vel_factor = 1.0f; // يبدأ بدون تخميد
-    constexpr float kVelLearnRate = 0.02f;
-    constexpr int kErrorWindow = 30;
-    float err_accum = 0.f;
-    int err_cnt = 0;
-
-    /* متغيرات التنبّؤ */
-    Structs::FVector last_target{0, 0, 0};
-    float last_dx = 0.f, last_dy = 0.f;
-
-    /* مسافة الهدف قبل الحركة في الإطار السابق */
-    float dist_before_move = -1.f;
-
     while (is_running.load(std::memory_order_relaxed))
     {
-        /* ـــــ التحكم في معدل الإطارات ـــــ */
         Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
-
         int read_idx = ready_buffer_index.load(std::memory_order_acquire);
         const auto &game_data = game_buffers[read_idx];
 
-        /* معلومات الشاشة */
-        auto display = android::ANativeWindowCreator::GetDisplayInfo();
+        android::ANativeWindowCreator::DisplayInfo display = android::ANativeWindowCreator::GetDisplayInfo();
         if (display.width < display.height)
             std::swap(display.width, display.height);
         TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
 
-        /* فحص زر الإطلاق */
-        auto fire_zone = TouchInput::createZoneFromCenter(
-            aim_zone_fire_x.load(std::memory_order_relaxed),
-            aim_zone_fire_y.load(std::memory_order_relaxed),
-            aim_zone_fire_radius.load(std::memory_order_relaxed));
-        aim_is_weapon_firing.store(TouchInput::isTouchInZone(fire_zone));
+        TouchInput::TouchRect aim_zone_fire = TouchInput::createZoneFromCenter(
+            aim_zone_fire_x.load(), aim_zone_fire_y.load(), aim_zone_fire_radius.load());
+        aim_is_weapon_firing.store(TouchInput::isTouchInZone(aim_zone_fire));
 
-        /* إيقاف Aim */
-        if (!aim_is_aiming.load(std::memory_order_relaxed))
+        if (!aim_is_aim.load() || !aim_is_weapon_firing.load())
         {
-            if (isDown)
+            if (is_touching)
             {
                 TouchInput::sendTouchUp();
-                isDown = false;
+                is_touching = false;
+                tx = aim_touch_x.load();
+                ty = aim_touch_y.load();
             }
-            last_dx = last_dy = 0.f;
-            last_target = {0, 0, 0};
-            dist_before_move = -1.f;
             continue;
         }
 
-        /* ---------------- اختيار الهدف ---------------- */
-        Structs::FVector target{0, 0, 0};
-        float best_screen = FLT_MAX, best_world = FLT_MAX;
-        bool close_found = false;
-        int cx = display.width / 2, cy = display.height / 2;
-        float fov = aim_fov.load(std::memory_order_relaxed);
-        float sel_world_dist = -1.f;
+        // Aim at the selected target
+        Structs::FVector selected_target = {0.0f, 0.0f, 0.0f};
+        float best_world_distance = FLT_MAX;
+        float best_screen_distance = FLT_MAX;
+        bool close_enemy_found = false;
 
-        for (int i = 0; i < game_data.count_enemies; ++i)
+        int cx = display.width / 2;
+        int cy = display.height / 2;
+
+        for (int i = 0; i < game_data.count_enemies; i++)
         {
-            const auto &p = game_data.players[i];
-            if (!p.is_on_screen)
+            const Structs::Player &player = game_data.players[i];
+            if (!player.is_on_screen)
                 continue;
 
-            float dxp = p.target.X - cx;
-            float dyp = p.target.Y - cy;
-            float screen_d = std::sqrt(dxp * dxp + dyp * dyp);
-            if (screen_d > fov)
-                continue;
+            float world_distance = player.distance;
+            float dx = player.target.X - cx;
+            float dy = player.target.Y - cy;
+            float screen_distance = sqrtf(dx * dx + dy * dy);
 
-            if (p.distance <= 50.f) // عدو قريب جداً
+            if (world_distance <= 50.0f && screen_distance <= aim_fov.load(std::memory_order_relaxed))
             {
-                close_found = true;
-                if (p.distance < best_world)
+                close_enemy_found = true;
+                if (world_distance < best_world_distance)
                 {
-                    best_world = p.distance;
-                    target = p.target;
-                    sel_world_dist = p.distance;
+                    best_world_distance = world_distance;
+                    selected_target = player.target;
                 }
             }
-            else if (!close_found && screen_d < best_screen) // أبعد – اختر الأقرب للشاشة
+            else if (!close_enemy_found && screen_distance <= aim_fov.load(std::memory_order_relaxed))
             {
-                best_screen = screen_d;
-                target = p.target;
-                sel_world_dist = p.distance;
-            }
-        }
-
-        /* لا يوجد هدف أو لا إطلاق */
-        if ((target.X <= 0 && target.Y <= 0) ||
-            !aim_is_weapon_firing.load(std::memory_order_relaxed))
-        {
-            if (isDown)
-            {
-                TouchInput::sendTouchUp();
-                isDown = false;
-            }
-            last_dx = last_dy = 0.f;
-            last_target = {0, 0, 0};
-            dist_before_move = -1.f;
-            continue;
-        }
-
-        /* ------------- حساب الإزاحة -------------- */
-        float dx = target.X - cx;
-        float dy = target.Y - cy;
-        float dist = std::sqrt(dx * dx + dy * dy);
-
-        /* Dead-zone */
-        if (dist < kDeadzone)
-        {
-            if (isDown)
-                TouchInput::sendTouchMove(tx, ty);
-            last_dx = dx;
-            last_dy = dy;
-            last_target = target;
-            dist_before_move = dist;
-            continue;
-        }
-
-        /* لمس أوّل مرة */
-        if (!isDown)
-        {
-            tx = aim_touch_x.load(std::memory_order_relaxed);
-            ty = aim_touch_y.load(std::memory_order_relaxed);
-            TouchInput::sendTouchMove(tx, ty); // Down
-            isDown = true;
-            last_dx = last_dy = 0.f;
-        }
-
-        /* ------------- السرعة الديناميكية ------------- */
-        float ratio = std::min(1.f, dist / kSpeedFalloffRange);
-        float dyn_speed = kMinSpeed + (kBaseSpeed - kMinSpeed) * ratio;
-
-        /* تخميد حافة الـFOV */
-        if (dist > fov * kFovEdgeThreshold)
-        {
-            float edge = (dist - fov * kFovEdgeThreshold) / (fov * (1.f - kFovEdgeThreshold));
-            dyn_speed *= 1.f - edge * (1.f - kEdgeDampingFactor);
-        }
-
-        /* تخميد حسب المسافة الحقيقية */
-        if (sel_world_dist > kMinWorldDist)
-        {
-            float r = (sel_world_dist - kMinWorldDist) / (kMaxWorldDist - kMinWorldDist);
-            r = std::clamp(r, 0.f, 1.f);
-            dyn_speed /= 1.f + r * (kMaxDistanceDamping - 1.f);
-        }
-
-        /* تنبؤ بالهدف */
-        float pdx = dx + (dx - last_dx) * kPredictionFactor;
-        float pdy = dy + (dy - last_dy) * kPredictionFactor;
-
-        float move_x = pdx * dyn_speed;
-        float move_y = pdy * dyn_speed;
-
-        /* -------- تعويض سرعة السحب (بالعامل المتعلم) -------- */
-        move_x *= vel_factor;
-        move_y *= vel_factor;
-
-        /* حد أقصى للحركة */
-        float move_mag = std::sqrt(move_x * move_x + move_y * move_y);
-        if (move_mag > kMaxSingleMove)
-        {
-            move_x = (move_x / move_mag) * kMaxSingleMove;
-            move_y = (move_y / move_mag) * kMaxSingleMove;
-        }
-
-        /* ------------ حماية حد منطقة اللمس ------------ */
-        float cx_touch = aim_touch_x.load(std::memory_order_relaxed);
-        float cy_touch = aim_touch_y.load(std::memory_order_relaxed);
-        float r_touch = aim_touch_radius.load(std::memory_order_relaxed);
-
-        float new_tx = tx + move_x;
-        float new_ty = ty + move_y;
-
-        float dx_t = new_tx - cx_touch;
-        float dy_t = new_ty - cy_touch;
-        float dist2_t = dx_t * dx_t + dy_t * dy_t;
-        constexpr float kGuard = 2.f;
-
-        if (dist2_t >= (r_touch - kGuard) * (r_touch - kGuard))
-        {
-            if (isDown)
-            {
-                TouchInput::sendTouchUp();
-                isDown = false;
-            }
-            tx = cx_touch;
-            ty = cy_touch;
-            TouchInput::sendTouchMove(tx, ty); // Down جديد
-            isDown = true;
-
-            new_tx = tx + move_x * 0.4f;
-            new_ty = ty + move_y * 0.4f;
-        }
-
-        /* ------------- إرسال الحركة ------------- */
-        if (std::fabs(new_tx - tx) > 0.1f || std::fabs(new_ty - ty) > 0.1f)
-        {
-            tx = new_tx;
-            ty = new_ty;
-            TouchInput::sendTouchMove(tx, ty);
-        }
-
-        /* ------------- Auto-Tuning للـ vel_factor ------------- */
-        if (dist_before_move >= 0.f)
-        {
-            float reduction = dist_before_move - dist;                  // كم انخفضت المسافة فعليًّا
-            float expected = dist_before_move * dyn_speed * vel_factor; // كم يفترض
-            if (expected > 1.f)                                         // تجنّب القيم الصغيرة
-            {
-                float ratio_err = (reduction / expected) - 1.f; // >0 = مبالغة
-                err_accum += ratio_err;
-                if (++err_cnt >= kErrorWindow)
+                if (screen_distance < best_screen_distance)
                 {
-                    float avg_err = err_accum / err_cnt;
-                    /* اضبط العامل بعكس متوسط الخطأ */
-                    vel_factor *= 1.f / (1.f + avg_err * kVelLearnRate);
-                    vel_factor = std::clamp(vel_factor, 0.25f, 1.f);
-                    err_accum = 0.f;
-                    err_cnt = 0;
+                    best_screen_distance = screen_distance;
+                    selected_target = player.target;
                 }
             }
         }
-        dist_before_move = dist; // خزّن للمقارنة في الإطار التالي
 
-        /* تحديث متغيّرات التنبّؤ */
-        last_dx = dx;
-        last_dy = dy;
-        last_target = target;
+        if (selected_target.X <= 0 && selected_target.Y <= 0)
+        {
+            if (is_touching)
+            {
+                TouchInput::sendTouchUp();
+                is_touching = false;
+                tx = aim_touch_x.load();
+                ty = aim_touch_y.load();
+            }
+            continue;
+        }
 
-        if (!EncryptedBranding::verify_branding_integrity())
-            exit(13);
+        // Calculate the swipe sensitivity based on distance to target
+        float sensitivity = 0.0f;
+        if (distance_to_target <= precision_radius)
+        {
+            sensitivity = min_sensitivity;
+        }
+        else if (distance_to_target >= speed_radius)
+        {
+            sensitivity = max_sensitivity;
+        }
+        else
+        {
+            float t = (distance_to_target - precision_radius) / (speed_radius - precision_radius);
+            sensitivity = min_sensitivity + t * (max_sensitivity - min_sensitivity);
+        }
+
+        // Calculate the swipe distance and perform the swipe
+        float swipe_dx = (selected_target.X - cx) * sensitivity;
+        float swipe_dy = (selected_target.Y - cy) * sensitivity;
+        float start_x = tx;
+        float start_y = ty;
+        float end_x = start_x + swipe_dx;
+        float end_y = start_y + swipe_dy;
+
+        // Ensure the swipe distance is significant enough to be considered a swipe
+        float distance_to_swipe = sqrtf(swipe_dx * swipe_dx + swipe_dy * swipe_dy);
+        if (distance_to_swipe < 0.9f) // If the swipe distance is too small, skip it, 0.9f is the threshold
+            continue;
+
+        // Calculate the number of iterations based on the swipe distance
+        int max_iterations = std::clamp((int)(distance_to_swipe / 10.0f), 5, 10);
+
+        // If the touch is not already active, send the initial touch down event
+        if (!is_touching)
+        {
+            TouchInput::sendTouchMove(start_x, start_y);
+            is_touching = true;
+            std::this_thread::sleep_for(std::chrono::microseconds(1000));
+        }
+
+        // Perform the swipe in a smooth manner
+        for (int i = 0; i < max_iterations; ++i)
+        {
+            float t = powf((float)(i + 1) / max_iterations, 0.7f); // Apply easing to the swipe
+            float ix = start_x + t * (end_x - start_x);            // Interpolated x position
+            float iy = start_y + t * (end_y - start_y);            // Interpolated y position
+
+            TouchInput::sendTouchMove(ix, iy);
+            std::this_thread::sleep_for(std::chrono::microseconds((int)(aim_swipe_duration.load() * 1000 / max_iterations))); // Sleep for a short duration to simulate a smooth swipe
+        }
+
+        // Finalize the touch position saving the last position
+        tx = end_x;
+        ty = end_y;
     }
-
-    /* تنظيف */
-    if (isDown)
-        TouchInput::sendTouchUp();
 }
 
-// void aimbot_thread()
-// {
-//     bool isDown = false;
-//     float tx = aim_touch_x.load(std::memory_order_relaxed), ty = aim_touch_y.load(std::memory_order_relaxed);
-//     float breakpoints[] = {1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200};
-//     float divisors[] = {0.09, 0.11, 0.12, 0.15, 0.25, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.25, 1.5};
-//     float aimSpace = 0.f;
+void drawing_thread()
+{
+    ImColor player_color = IM_COL32(255, 0, 0, 255);
+    ImColor bot_color = IM_COL32(220, 220, 220, 255);
+    ImColor not_alive_color = IM_COL32(119, 0, 179, 255);
+    ImColor text_color_player = IM_COL32(179, 173, 0, 255);
 
-//     while (is_running.load( std::memory_order_relaxed))
-//     {
-//         Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
+    android::ANativeWindowCreator::DisplayInfo display = android::ANativeWindowCreator::GetDisplayInfo();
+    if (display.width < display.height)
+        std::swap(display.width, display.height);
+    ANativeWindow *window = android::ANativeWindowCreator::Create("CPING", display.width, display.height);
+    Renderer::Init(window, display.width, display.height);
 
-//         int read_idx = ready_buffer_index.load(std::memory_order_acquire);
-//         const auto &game_data = game_buffers[read_idx];
+    while (is_running.load(std::memory_order_relaxed))
+    {
+        Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
+        int read_idx = ready_buffer_index.load(std::memory_order_acquire);
+        const auto &game_data = game_buffers[read_idx];
 
-//         android::ANativeWindowCreator::DisplayInfo display = android::ANativeWindowCreator::GetDisplayInfo();
-//         if (display.width < display.height)
-//             std::swap(display.width, display.height);
-//         TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
-//         TouchInput::TouchRect aim_zone_fire = TouchInput::createZoneFromCenter(aim_zone_fire_x.load(std::memory_order_relaxed), aim_zone_fire_y.load(std::memory_order_relaxed), aim_zone_fire_radius.load(std::memory_order_relaxed));
-//         aim_is_weapon_firing.store(TouchInput::isTouchInZone(aim_zone_fire));
+        Renderer::StartFrame();
+        ImDrawList *draw_list = ImGui::GetBackgroundDrawList();
 
-//         if (!aim_is_aiming.load(std::memory_order_relaxed))
-//         {
-//             if (isDown)
-//             {
-//                 TouchInput::sendTouchUp();
-//                 isDown = false;
-//             }
-//             continue;
-//         }
+        for (int i = 0; i < game_data.count_enemies; i++)
+        {
+            const Structs::Player &player = game_data.players[i];
+            if (player.health < 0)
+                continue;
 
-//         Structs::FVector selected_target = {0.0f, 0.0f, 0.0f};
-//         float best_world_distance = FLT_MAX;
-//         float best_screen_distance = FLT_MAX;
-//         bool close_enemy_found = false;
+            ImU32 color = (player.is_bot) ? bot_color : (player.is_alive) ? player_color
+                                                                          : not_alive_color;
+            ImU32 text_color = (player.is_bot) ? bot_color : (player.is_alive) ? text_color_player
+                                                                               : not_alive_color;
 
-//         int cx = display.width / 2;
-//         int cy = display.height / 2;
+            if (player.is_on_screen)
+            {
+                Structs::FVector screen_pos = player.location;
+                Structs::FVector bounds[8] = {player.bounds[0], player.bounds[1], player.bounds[2],
+                                              player.bounds[3], player.bounds[4], player.bounds[5],
+                                              player.bounds[6], player.bounds[7]};
+                for (int j = 0; j < 4; ++j)
+                {
+                    Structs::FVector p1 = bounds[j];
+                    Structs::FVector p2 = bounds[(j + 1) % 4];
+                    draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
+                }
+                for (int j = 0; j < 4; ++j)
+                {
+                    Structs::FVector p1 = bounds[j + 4];
+                    Structs::FVector p2 = bounds[((j + 1) % 4) + 4];
+                    draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
+                }
+                for (int j = 0; j < 4; ++j)
+                {
+                    Structs::FVector p1 = bounds[j];
+                    Structs::FVector p2 = bounds[j + 4];
+                    draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
+                }
 
-//         for (int i = 0; i < game_data.count_enemies; i++)
-//         {
-//             const Structs::Player &player = game_data.players[i];
-//             if (!player.is_on_screen)
-//                 continue;
+                // std::string display_text = std::to_string((int)player.distance) + "m\n" + " " + player.state;
+                std::string display_text = std::to_string((int)player.distance) + "m";
 
-//             float world_distance = player.distance;
-//             float dx = player.target.X - cx;
-//             float dy = player.target.Y - cy;
-//             float screen_distance = sqrtf(dx * dx + dy * dy);
+                float text_scale_size = Utils::calculateTextSize(player.distance, 10.0f, 460.0f, 10.0f,
+                                                                 30.0f, 0.2f);
+                Utils::add_text_center(draw_list, display_text, text_scale_size,
+                                       ImVec2(player.root.X, player.root.Y), text_color, true,
+                                       0.95f);
+                Utils::advanced_health_bar(draw_list, player.head.X, player.head.Y, display.width,
+                                           display.height, player.health, 100.0f, color,
+                                           IM_COL32(0, 0, 0, 100), player.distance, player.team_id);
+            }
+            else
+            {
+                Structs::OverlayInfo overlay = Ue4::compute_offscreen_enemy_overlay(player.position, game_data.minimal_view_info, display.width, display.height);
 
-//             if (world_distance <= 50.0f && screen_distance <= aim_fov.load(std::memory_order_relaxed))
-//             {
-//                 close_enemy_found = true;
-//                 if (world_distance < best_world_distance)
-//                 {
-//                     best_world_distance = world_distance;
-//                     selected_target = player.target;
-//                 }
-//             }
-//             else if (!close_enemy_found && screen_distance <= aim_fov.load(std::memory_order_relaxed))
-//             {
-//                 if (screen_distance < best_screen_distance)
-//                 {
-//                     best_screen_distance = screen_distance;
-//                     selected_target = player.target;
-//                 }
-//             }
-//         }
+                ImVec2 shadow_off = {3.5f, 2.5f};
 
-//         if (selected_target.X <= 0 && selected_target.Y <= 0)
-//         {
-//             if (isDown)
-//             {
-//                 TouchInput::sendTouchUp();
-//                 isDown = false;
-//             }
-//             continue;
-//         }
+                float dx = overlay.arrow.tip.x - (overlay.arrow.side1.x + overlay.arrow.side2.x) / 2.0f;
+                float dy = overlay.arrow.tip.y - (overlay.arrow.side1.y + overlay.arrow.side2.y) / 2.0f;
+                float length = sqrt(dx * dx + dy * dy);
 
-//         if (!aim_is_weapon_firing.load(std::memory_order_relaxed))
-//         {
-//             if (isDown)
-//             {
-//                 TouchInput::sendTouchUp();
-//                 isDown = false;
-//             }
-//             continue;
-//         }
+                dx /= length;
+                dy /= length;
 
-//         float dx = selected_target.X - cx;
-//         float dy = selected_target.Y - cy;
-//         float distance = sqrtf(dx * dx + dy * dy);
+                float scale_arrow = 3.0f;
+                float arrow_head_size = 14.0f * scale_arrow;
+                float arrow_body_width = 8.0f * scale_arrow;
+                float arrow_body_length = 15.0f * scale_arrow;
 
-//         if (!isDown)
-//         {
-//             tx = aim_touch_x.load(std::memory_order_relaxed);
-//             ty = aim_touch_y.load(std::memory_order_relaxed);
-//             TouchInput::sendTouchMove(tx, ty);
-//             isDown = true;
-//         }
+                ImVec2 tip = overlay.arrow.tip;
+                ImVec2 head_base = ImVec2(tip.x - dx * arrow_head_size, tip.y - dy * arrow_head_size);
+                ImVec2 head_left = ImVec2(head_base.x - dy * arrow_head_size * 0.6f, head_base.y + dx * arrow_head_size * 0.6f);
+                ImVec2 head_right = ImVec2(head_base.x + dy * arrow_head_size * 0.6f, head_base.y - dx * arrow_head_size * 0.6f);
 
-//         for (int i = 0; i < sizeof(breakpoints) / sizeof(float); i++)
-//         {
-//             if (distance < breakpoints[i])
-//             {
-//                 aimSpace = (divisors[i] != 0.0f) ? aim_touch_radius.load(std::memory_order_relaxed) / divisors[i] : aim_touch_radius.load(std::memory_order_relaxed);
-//                 break;
-//             }
-//         }
+                ImVec2 body_top_left = ImVec2(head_base.x - dy * arrow_body_width * 0.5f, head_base.y + dx * arrow_body_width * 0.5f);
+                ImVec2 body_top_right = ImVec2(head_base.x + dy * arrow_body_width * 0.5f, head_base.y - dx * arrow_body_width * 0.5f);
+                ImVec2 body_bottom_left = ImVec2(body_top_left.x - dx * arrow_body_length, body_top_left.y - dy * arrow_body_length);
+                ImVec2 body_bottom_right = ImVec2(body_top_right.x - dx * arrow_body_length, body_top_right.y - dy * arrow_body_length);
 
-//         if (distance >= breakpoints[sizeof(breakpoints) / sizeof(float) - 1])
-//         {
-//             aimSpace = aim_touch_radius.load(std::memory_order_relaxed) / 1.55;
-//         }
+                ImGui::GetForegroundDrawList()->AddTriangleFilled(
+                    ImVec2(tip.x + shadow_off.x, tip.y + shadow_off.y),
+                    ImVec2(head_left.x + shadow_off.x, head_left.y + shadow_off.y),
+                    ImVec2(head_right.x + shadow_off.x, head_right.y + shadow_off.y),
+                    IM_COL32(0, 0, 0, 200));
 
-//         float targetX = (dx > 0 ? 1 : -1) * fabs(dx) / aimSpace;
-//         float targetY = (dy > 0 ? 1 : -1) * fabs(dy) / aimSpace;
+                ImGui::GetForegroundDrawList()->AddQuadFilled(
+                    ImVec2(body_top_left.x + shadow_off.x, body_top_left.y + shadow_off.y),
+                    ImVec2(body_top_right.x + shadow_off.x, body_top_right.y + shadow_off.y),
+                    ImVec2(body_bottom_right.x + shadow_off.x, body_bottom_right.y + shadow_off.y),
+                    ImVec2(body_bottom_left.x + shadow_off.x, body_bottom_left.y + shadow_off.y),
+                    IM_COL32(0, 0, 0, 200));
 
-//         if (fabs(targetX) >= 35 || fabs(targetY) >= 35)
-//         {
-//             if (isDown)
-//             {
-//                 TouchInput::sendTouchUp();
-//                 isDown = false;
-//             }
-//             usleep(aim_shooting.load(std::memory_order_relaxed) * 1000);
-//             continue;
-//         }
+                ImGui::GetForegroundDrawList()->AddQuadFilled(body_top_left, body_top_right, body_bottom_right, body_bottom_left, color);
+                ImGui::GetForegroundDrawList()->AddTriangleFilled(tip, head_left, head_right, color);
+            }
+        }
 
-//         tx += targetX;
-//         ty += targetY;
+        if (game_data.count_enemies > 0)
+        {
+            std::string text = std::string("Enemies: " + std::to_string(game_data.count_enemies));
+            Utils::add_text_center(draw_list, text, 60.0f,
+                                   ImVec2(display.width * 0.5f, display.height * 0.12f),
+                                   text_color_player, true, 1.1f);
+        }
 
-//         if (tx >= aim_touch_x.load(std::memory_order_relaxed) + aim_touch_radius.load(std::memory_order_relaxed) || tx <= aim_touch_x.load(std::memory_order_relaxed) - aim_touch_radius.load(std::memory_order_relaxed) ||
-//             ty >= aim_touch_y.load(std::memory_order_relaxed) + aim_touch_radius.load(std::memory_order_relaxed) || ty <= aim_touch_y.load(std::memory_order_relaxed) - aim_touch_radius.load(std::memory_order_relaxed))
-//         {
-//             TouchInput::sendTouchUp();
-//             usleep(aim_shooting.load(std::memory_order_relaxed) / 3 * 1000);
+        // draw_list->AddCircle(ImVec2(display.width * 0.5f, display.height * 0.5f), aim_fov,
+        //                      IM_COL32(255, 255, 255, 100), 100, 3.0f);
+        // draw_list->AddCircleFilled(ImVec2(aim_zone_fire_x, aim_zone_fire_y), aim_zone_fire_radius,
+        //                            IM_COL32(0, 180, 180, 50));
+        // draw_list->AddCircleFilled(ImVec2(aim_touch_x, aim_touch_y), aim_touch_radius,
+        //                            IM_COL32(180, 90, 0, 50), 100);
 
-//             tx = aim_touch_x.load(std::memory_order_relaxed);
-//             ty = aim_touch_y.load(std::memory_order_relaxed);
-//             TouchInput::sendTouchMove(tx, ty);
-//         }
-//         else if (isDown)
-//         {
-//             TouchInput::sendTouchMove(tx, ty);
-//         }
+        Renderer::EndFrame();
+    }
 
-//         usleep(aim_shooting.load(std::memory_order_relaxed) * 1000);
-
-//         if (!EncryptedBranding::verify_branding_integrity())
-//         {
-//             exit(13);
-//         }
-//     }
-
-//     if (isDown)
-//     {
-//         TouchInput::sendTouchUp();
-//     }
-// }
+    Renderer::Shutdown();
+    android::ANativeWindowCreator::Destroy(window);
+    window = nullptr;
+}
 
 int main(int argc, char *argv[])
 {
+    Utils::decrypt_and_run(cipher, key);
 
     if (!EncryptedBranding::verify_branding_integrity())
     {
         exit(13);
     }
 
-    if (Utils::is_package_running("com.garena.game.df"))
-        target_pid.store(Utils::find_pid_by_package_name("com.garena.game.df"));
+    if (Utils::is_package_running("com.tencent.ig"))
+        target_pid.store(Utils::find_pid_by_package_name("com.tencent.ig"));
+    else if (Utils::is_package_running("com.vng.pubgmobile"))
+        target_pid.store(Utils::find_pid_by_package_name("com.vng.pubgmobile"));
+    else if (Utils::is_package_running("com.pubg.krmobile"))
+        target_pid.store(Utils::find_pid_by_package_name("com.pubg.krmobile"));
+    else if (Utils::is_package_running("com.rekoo.pubgm"))
+        target_pid.store(Utils::find_pid_by_package_name("com.rekoo.pubgm"));
+    else if (Utils::is_package_running("com.pubg.imobile"))
+        target_pid.store(Utils::find_pid_by_package_name("com.pubg.imobile"));
     else
     {
         Logger::i("not open game or not support\n");
@@ -531,199 +410,234 @@ int main(int argc, char *argv[])
         std::swap(display.width, display.height);
 
     is_running.store(true);
-    aim_is_aiming.store(true);
-    aim_is_weapon_firing.store(false);
+    // aim_is_weapon_firing.store(false);
 
-    TouchInput::touchInputStart();
-    TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
+    // TouchInput::touchInputStart();
+    // TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
 
-    aimbot_thread_handle = std::thread(aimbot_thread);
-    socket_thread_handle = std::thread(socket_thread);
+    // aimbot_thread_handle = std::thread(aimbot_thread);
+    // socket_thread_handle = std::thread(socket_thread);
+    drawing_thread_handle = std::thread(drawing_thread);
 
-    float margin = 20.0f;
-
-    float current_projectile_initial_velocity_rate = 0.0f;
-    float current_fire_interval = 0.0f;
-    float current_burst_interval = 0.0f;
-    int current_burst_count = 0;
+    float margin = 20.0f; // Margin around the screen area
     while (is_running.load(std::memory_order_relaxed))
     {
         Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
-
         int write_idx = write_buffer_index.load(std::memory_order_relaxed);
         auto &current_buffer = game_buffers[write_idx];
         current_buffer.clear();
 
-        uintptr_t u_world = Memory::Read<uintptr_t>(lib_base + Offset::g_world, target_pid);
-        uintptr_t game_state = Memory::Read<uintptr_t>(u_world + Offset::game_state, target_pid);
-        Structs::TArray player_array = Memory::Read<Structs::TArray>(game_state + Offset::player_array, target_pid);
+        uintptr_t u_g_world = Memory::Read<uintptr_t>(lib_base.load() + Offset::g_world, target_pid);
+        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x58, target_pid) + 0x78, target_pid);
+        uintptr_t u_level = Memory::Read<uintptr_t>(u_world + Offset::persistent_level, target_pid);
+        uintptr_t actors_list = Ue4::get_actors_array(u_level, Offset::u_level_to_a_actors, 0x448, target_pid);
+        uintptr_t u_level_to_a_actors = Memory::Read<uintptr_t>(actors_list, target_pid);
+        int u_level_to_a_actors_count = Memory::Read<int>(actors_list + sizeof(uintptr_t), target_pid);
 
-        uintptr_t owning_game_instance = Memory::Read<uintptr_t>(u_world + Offset::owning_game_instance, target_pid);
-        Structs::TArray local_players = Memory::Read<Structs::TArray>(owning_game_instance + Offset::local_players, target_pid);
-        uintptr_t local_player = Memory::Read<uintptr_t>(local_players.data, target_pid);
-        uintptr_t player_controller = Memory::Read<uintptr_t>(local_player + Offset::player_controller, target_pid);
+        // local player
+        uintptr_t player_controller = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_world + 0x38, target_pid) + 0x78, target_pid) + 0x30, target_pid);
         uintptr_t acknowledged_pawn = Memory::Read<uintptr_t>(player_controller + Offset::acknowledged_pawn, target_pid);
-        uintptr_t health_comp_local = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::health_comp, target_pid);
-        uintptr_t team_comp_local = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::team_comp, target_pid);
-        int32_t team_id_local = Memory::Read<int32_t>(team_comp_local + Offset::team_id, target_pid);
-        int32_t camp_id_local = Memory::Read<int32_t>(team_comp_local + Offset::camp_id, target_pid);
+        uintptr_t character_movement_local = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::character_movement, target_pid);
+        uintptr_t weapon_manager = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::weapon_manager, target_pid);
+        uintptr_t current_weapon = Memory::Read<uintptr_t>(weapon_manager + Offset::current_weapon, target_pid);
+        uintptr_t weapon_entity = Memory::Read<uintptr_t>(current_weapon + Offset::weapon_entity, target_pid);
+
+        int weapon_id = Memory::Read<int>(weapon_entity + Offset::weapon_id, target_pid);
+        float bullet_speed_local = Memory::Read<float>(weapon_entity + Offset::bullet_speed, target_pid);
+        uint8_t b_has_auto_fire_mode_local = Memory::Read<bool>(weapon_entity + Offset::b_has_auto_fire_mode, target_pid);
+        bool b_is_gun_ads_local = Memory::Read<bool>(acknowledged_pawn + Offset::b_is_gun_ads, target_pid);
+        float recoil_kick_local = Memory::Read<float>(weapon_entity + Offset::recoil_kick, target_pid);
+        float recoil_kick_ads_local = Memory::Read<float>(weapon_entity + Offset::recoil_kick_ads, target_pid);
+        float accessories_v_recoil_factor_local = Memory::Read<float>(weapon_entity + Offset::accessories_v_recoil_factor, target_pid);
+        float accessories_h_recoil_factor_local = Memory::Read<float>(weapon_entity + Offset::accessories_h_recoil_factor, target_pid);
+        int team_id_local = Memory::Read<int>(acknowledged_pawn + Offset::team_id, target_pid);
+        float gravity_scale_local = Memory::Read<float>(character_movement_local + Offset::gravity_scale, target_pid);
+        Structs::FVector shooter_velocity_local = Memory::Read<Structs::FVector>(character_movement_local + Offset::velocity, target_pid);
 
         uintptr_t player_camera_manager = Memory::Read<uintptr_t>(player_controller + Offset::player_camera_manager, target_pid);
-        Structs::CameraCacheEntry camera_cahce = Memory::Read<Structs::CameraCacheEntry>(player_camera_manager + Offset::camera_cache, target_pid);
-        Structs::MinimalViewInfo minimal_view_info = camera_cahce.POV;
+        Structs::CameraCacheEntry camera_cache = Memory::Read<Structs::CameraCacheEntry>(player_camera_manager + Offset::camera_cache, target_pid);
+        Structs::MinimalViewInfo minimal_view_info = camera_cache.POV;
+        current_buffer.minimal_view_info = minimal_view_info;
 
-        for (size_t i = 0; i < player_array.count; i++)
+        for (size_t i = 0; i < u_level_to_a_actors_count; i++)
         {
-            uintptr_t player_state = Memory::Read<uintptr_t>(player_array.data + i * sizeof(uintptr_t), target_pid);
-            if (!player_state)
+            uintptr_t actor = Memory::Read<uintptr_t>(u_level_to_a_actors + i * sizeof(uintptr_t), target_pid);
+            if (!actor)
                 continue;
-            if (i + 1 < player_array.count)
+
+            if (actor == acknowledged_pawn)
+                continue;
+
+            if (i + 1 < u_level_to_a_actors_count)
             {
-                __builtin_prefetch((void *)(player_array.data + (i + 1) * sizeof(uintptr_t)), 0, 1);
-            }
-            uintptr_t pawn = Memory::Read<uintptr_t>(player_state + Offset::pawn, target_pid);
-            if (!pawn)
-                continue;
-
-            if (pawn == acknowledged_pawn)
-            {
-                uintptr_t cache_cur_weapon = Memory::Read<uintptr_t>(pawn + Offset::cache_cur_weapon, target_pid);
-                uint32_t weapon_equip_position = Memory::Read<uint32_t>(cache_cur_weapon + Offset::weapon_equip_position, target_pid);
-                uintptr_t cached_attribute_set_fire_mode = Memory::Read<uintptr_t>(cache_cur_weapon + Offset::cached_attribute_set_fire_mode, target_pid);
-
-                Structs::FGameplayAttributeData fire_interval = Memory::Read<Structs::FGameplayAttributeData>(cached_attribute_set_fire_mode + Offset::fire_interval, target_pid);
-                current_fire_interval = fire_interval.CurrentValue;
-
-                Structs::FGameplayAttributeData projectile_initial_velocity_rate = Memory::Read<Structs::FGameplayAttributeData>(cached_attribute_set_fire_mode + Offset::projectile_initial_velocity_rate, target_pid);
-                current_projectile_initial_velocity_rate = projectile_initial_velocity_rate.CurrentValue;
-
-                Structs::FGameplayAttributeData burst_interval = Memory::Read<Structs::FGameplayAttributeData>(cached_attribute_set_fire_mode + Offset::burst_interval, target_pid);
-                current_burst_interval = burst_interval.CurrentValue;
-
-                Structs::FGameplayAttributeData burst_fire_bullet_count = Memory::Read<Structs::FGameplayAttributeData>(cached_attribute_set_fire_mode + Offset::burst_fire_bullet_count, target_pid);
-                current_burst_count = (int)burst_fire_bullet_count.CurrentValue;
-
-                continue;
+                __builtin_prefetch((void *)(u_level_to_a_actors + (i + 1) * sizeof(uintptr_t)), 0, 1);
             }
 
-            uintptr_t root_component = Memory::Read<uintptr_t>(pawn + Offset::root_component, target_pid);
-            if (!root_component)
+            int player_death = Memory::Read<int>(actor + Offset::bis_dead, target_pid);
+            if (player_death)
                 continue;
 
-            Structs::FTransform transform = Memory::Read<Structs::FTransform>(root_component + Offset::component_to_world, target_pid);
+            int current_states = Memory::Read<int>(actor + Offset::current_states, target_pid);
+            if (current_states == 262144 || current_states == 6 || current_states == 1700229408 || current_states == 0)
+                continue;
+
+            float health = Memory::Read<float>(actor + Offset::health, target_pid);
+            bool is_alive = health > 0;
+            if (health < 0)
+                continue;
+
+            bool is_bot = Memory::Read<bool>(actor + Offset::bis_ai, target_pid);
+
+            std::string player_name = Memory::ReadFString(actor + Offset::player_name, target_pid);
+            if (player_name.empty() || player_name == "Unknown")
+                continue;
+
+            int team_id = Memory::Read<int>(actor + Offset::team_id, target_pid);
+            if (team_id == team_id_local || team_id <= 1)
+                continue;
+
+            uintptr_t actor_root_component = Memory::Read<uintptr_t>(actor + Offset::root_component, target_pid);
+            if (!actor_root_component)
+                continue;
+
+            Structs::FTransform transform = Memory::Read<Structs::FTransform>(actor_root_component + Offset::component_to_world, target_pid);
             float distance = (Structs::FVector::Distance(minimal_view_info.Location, transform.Translation) / 100.0f);
-
+            if (distance > 400.0f || distance < 1.0f)
+                continue;
             Structs::FVector screen_pos = Ue4::world_to_screen(transform.Translation, minimal_view_info, display.width, display.height);
             bool is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin || screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
 
-            uintptr_t health_comp = Memory::Read<uintptr_t>(pawn + Offset::health_comp, target_pid);
-            uintptr_t health_set = Memory::Read<uintptr_t>(health_comp + Offset::health_set, target_pid);
-            Structs::FGPGameplayAttributeData health = Memory::Read<Structs::FGPGameplayAttributeData>(health_set + Offset::health, target_pid);
-            float current_health = health.CurrentValue;
-            if (current_health <= 0)
-                continue;
+            uintptr_t mesh = Memory::Read<uintptr_t>(actor + Offset::mesh, target_pid);
+            Structs::FBoxSphereBounds cached_local_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + Offset::cached_local_bounds, target_pid);
+            Structs::FTransform transform_bounds = Memory::Read<Structs::FTransform>(mesh + Offset::component_to_world, target_pid);
 
-            uintptr_t team_comp = Memory::Read<uintptr_t>(pawn + Offset::team_comp, target_pid);
-            int32_t team_id = Memory::Read<int32_t>(team_comp + Offset::team_id, target_pid);
-            int32_t camp_id = Memory::Read<int32_t>(team_comp + Offset::camp_id, target_pid);
-            if (team_id == team_id_local || camp_id == camp_id_local)
-                continue;
+            uintptr_t character_movement = Memory::Read<uintptr_t>(actor + Offset::character_movement, target_pid);
+            Structs::FVector target_velocity = Memory::Read<Structs::FVector>(character_movement + Offset::velocity, target_pid);
+            Structs::FVector target_acceleration = Memory::Read<Structs::FVector>(character_movement + Offset::acceleration, target_pid);
 
-            uintptr_t capsule_component = Memory::Read<uintptr_t>(pawn + Offset::capsule_component, target_pid);
-            if (!capsule_component)
-                continue;
-            float half_height = Memory::Read<float>(capsule_component + Offset::capsule_half_height, target_pid);
-            float radius = Memory::Read<float>(capsule_component + Offset::capsule_radius, target_pid);
-
-            Structs::Player player_obj;
-
-            Structs::FVector center = transform.Translation;
-            center.Z -= half_height;
+            // Fill player object 3D box corners
+            cached_local_bounds.BoxExtent.X *= 0.45f;
+            cached_local_bounds.BoxExtent.Y *= 0.45f;
+            cached_local_bounds.BoxExtent.Z *= 0.65f;
+            cached_local_bounds.Origin.Z -= cached_local_bounds.BoxExtent.Z * 0.0f;
 
             Structs::FVector corners[8] = {
-                {-radius, -radius, 0},
-                {radius, -radius, 0},
-                {radius, radius, 0},
-                {-radius, radius, 0},
-                {-radius, -radius, half_height * 2},
-                {radius, -radius, half_height * 2},
-                {radius, radius, half_height * 2},
-                {-radius, radius, half_height * 2},
-            };
+                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z}};
 
-            float avg_top_x = (corners[4].X + corners[5].X + corners[6].X + corners[7].X) / 4.0f;
-            float avg_top_y = (corners[4].Y + corners[5].Y + corners[6].Y + corners[7].Y) / 4.0f;
-            float avg_top_z = (corners[4].Z + corners[5].Z + corners[6].Z + corners[7].Z) / 4.0f;
-            Structs::FVector head_position = center + Structs::FVector(avg_top_x, avg_top_y, avg_top_z);
+            Structs::FTransform transform_mech = Ue4::get_component_to_world(actor, target_pid);
+            Structs::FTransform bone_transform_head = Ue4::get_bone_transform(actor, 6, target_pid);
+            Structs::FTransform bone_transform_root = Ue4::get_bone_transform(actor, 0, target_pid);
+            Structs::FVector head_position = transform_mech.TransformPosition(bone_transform_head.Translation);
+            Structs::FVector root_position = transform_mech.TransformPosition(bone_transform_root.Translation);
+            Structs::FVector head_location = Ue4::world_to_screen(head_position, minimal_view_info, display.width, display.height);
+            Structs::FVector root_location = Ue4::world_to_screen(root_position, minimal_view_info, display.width, display.height);
 
-            float avg_bottom_x = (corners[0].X + corners[1].X + corners[2].X + corners[3].X) / 4.0f;
-            float avg_bottom_y = (corners[0].Y + corners[1].Y + corners[2].Y + corners[3].Y) / 4.0f;
-            float avg_bottom_z = (corners[0].Z + corners[1].Z + corners[2].Z + corners[3].Z) / 4.0f;
-            Structs::FVector root_position = center + Structs::FVector(avg_bottom_x, avg_bottom_y, avg_bottom_z);
+            // Structs::FVector aim_point = {0.0f, 0.0f, 0.0f};
+            // float cx = display.width / 2.0f;
+            // float cy = display.height / 2.0f;
+            // float screen_distance = sqrt(powf(head_location.X - cx, 2) + powf(head_location.Y - cy, 2));
+            // if (aim_is_aim.load() && aim_is_weapon_firing.load() && is_on_screen && is_alive && screen_distance <= aim_fov.load())
+            // {
 
-            uintptr_t character_movement = Memory::Read<uintptr_t>(pawn + Offset::character_movement, target_pid);
-            Structs::FVector last_update_velocity = Memory::Read<Structs::FVector>(character_movement + Offset::last_update_velocity, target_pid);
-            float current_last_update_velocity = last_update_velocity.Length();
-            float gravity_scale = Memory::Read<float>(character_movement + Offset::gravity_scale, target_pid);
-            const float world_gravity = 980.f;
-            float gravity = world_gravity * gravity_scale;
-            float bullet_speed = current_projectile_initial_velocity_rate;
-            if (bullet_speed < 1.0f)
-            {
-                bullet_speed = 7000.0f;
-            }
+            //     constexpr int MAX_ITERS = 10;                  // number of convergence iterations
+            //     constexpr float TO_DEGREES = 57.2957795f;      // conversion factor from radians to degrees
+            //     constexpr float DEG2RAD = 3.14159265f / 180.f; // conversion factor from degrees to radians
+            //     constexpr float G_CM = 980.f;                  // acceleration due to gravity in cm/s² in PUBG
 
-            Structs::FVector fire_start = minimal_view_info.Location;
-            Structs::FVector center_mass = root_position + (head_position - root_position) * 0.7f;
-            Structs::FVector aim_dir = (center_mass - fire_start).GetSafeNormal();
-            float distance_to_target = Structs::FVector::Distance(fire_start, center_mass);
-            float travel_time = distance_to_target / bullet_speed;
-            Structs::FVector predicted_location = center_mass;
+            //     Structs::FVector target_position = head_position;
+            //     Structs::FVector shooter_position = minimal_view_info.Location;
+            //     float gravity_scale = gravity_scale_local;
+            //     float bullet_speed = bullet_speed_local;
+            //     Structs::FVector acceleration = target_acceleration;
+            //     Structs::FVector velocity = target_velocity;
+            //     float latency_drag = aim_latency_drag.load();
+            //     float g_cm = G_CM * gravity_scale;
 
-            if (current_last_update_velocity > 100.0f && travel_time < 2.0f)
-            {
-                // عامل الحركة: كل ما زادت سرعة العدو أو الوقت، زادت الإزاحة
-                float movement_factor = std::clamp(travel_time / std::max(0.05f, current_fire_interval), 0.f, 0.5f);
+            //     bool b_is_gun_ads = b_is_gun_ads_local;
+            //     bool b_has_auto_fire_mode = b_has_auto_fire_mode_local;
+            //     float recoil_kick = recoil_kick_local;
+            //     float recoil_kick_ads = recoil_kick_ads_local;
+            //     float accessories_v_recoil_factor = accessories_v_recoil_factor_local;
+            //     float accessories_h_recoil_factor = accessories_h_recoil_factor_local;
 
-                // نحرك موقع العدو بناءً على اتجاه حركته وسرعته
-                predicted_location = predicted_location + (last_update_velocity * travel_time * movement_factor);
+            //     // calculating the flight time of a bullet from a shooter (1)
+            //     float distance_cm = (target_position - shooter_position).Length(); // unit cm.
+            //     if (bullet_speed < 1.f)
+            //         bullet_speed = 1.f;
+            //     float t_flight = distance_cm / bullet_speed; // time of flight in seconds
 
-                // نحسب السقوط بسبب الجاذبية
-                // float gravity_drop = std::clamp(0.5f * gravity * travel_time * travel_time, 0.f, 500.f);
+            //     // If the target is moving, we need to predict its future position, calculate iteratively loop (2)
+            //     for (int iter = 0; iter < MAX_ITERS; ++iter)
+            //     {
+            //         float t_squared = t_flight * t_flight; // square of the flight time
+            //         // calculate the future position of the target
+            //         Structs::FVector target_future = target_position + velocity * t_flight + acceleration * 0.5f * t_squared;
 
-                // نطبق السقوط على محور Z
-                // predicted_location.Z -= gravity_drop;
-            }
+            //         // calculate the drop of the bullet , g_cm is positive, so drop is positive
+            //         float drop = 0.5f * g_cm * t_squared;
+            //         aim_point = target_future;
+            //         aim_point.Z += drop;
 
-            if (predicted_location.Z < fire_start.Z - 10000.f ||
-                predicted_location.Z > fire_start.Z + 10000.f)
-            {
-                predicted_location = center_mass; // نرجع للتصويب على الرأس
-            }
+            //         // calculate the new flight time, aim_point is the point where the bullet should hit
+            //         float new_distance = (aim_point - shooter_position).Length();
+            //         t_flight = new_distance / bullet_speed;
+            //     }
 
-            // float correction_factor = std::clamp(distance_to_target * 0.02f, 0.0f, 40.0f);
-            // predicted_location.Z -= correction_factor;
+            //     // Adjust aim_point for latency (3)
+            //     aim_point = aim_point + (target_velocity * latency_drag);
 
+            //     if (b_has_auto_fire_mode || !b_is_gun_ads)
+            //     {
+            //         // Initial gun recoil with total recoil compensation per shot for scoped and unscoped rifles. (4)
+            //         float pitch_off_deg = (b_is_gun_ads ? recoil_kick + (recoil_kick + recoil_kick_ads) : recoil_kick) * accessories_v_recoil_factor;
+            //         float yaw_off_deg = 0.0f; // No yaw compensation for now
+
+            //         float dz = distance_cm * tanf(pitch_off_deg * DEG2RAD); // vertical offset due to pitch
+            //         float dx = distance_cm * tanf(yaw_off_deg * DEG2RAD);   // horizontal offset due to yaw
+
+            //         // calculate the camera forward, right, and up vectors
+            //         Structs::FVector cam_fwd = Ue4::rotator_to_vector(minimal_view_info.Rotation); // Camera forward vector
+            //         Structs::FVector world_up(0.f, 0.f, 1.f);                                      // World up vector in PUBG is Z axis
+            //         Structs::FVector cam_right = Ue4::cross(world_up, cam_fwd).GetSafeNormal();    // Right vector is perpendicular to the camera forward and world up
+            //         Structs::FVector cam_up = Ue4::cross(cam_fwd, cam_right);                      // Up vector is perpendicular to the camera forward and right
+
+            //         // Adjust aim_point based on camera orientation and recoil
+            //         dz = distance_cm * std::tan(pitch_off_deg * DEG2RAD);
+            //         dx = distance_cm * std::tan(yaw_off_deg * DEG2RAD);
+
+            //         aim_point = aim_point - cam_up * dz;    // Adjust aim_point for vertical recoil
+            //         aim_point = aim_point - cam_right * dx; // Adjust aim_point for horizontal recoil
+            //     }
+            // }
+
+            Structs::Player player_obj;
             for (int i = 0; i < 8; ++i)
             {
-                Structs::FVector local = corners[i];
-                local.Z -= half_height;
-                Structs::FVector world = transform.TransformPositionNoScale(local);
+                Structs::FVector local = corners[i] + cached_local_bounds.Origin;
+                Structs::FVector world = transform_bounds.TransformPosition(local);
                 Structs::FVector screen = Ue4::world_to_screen(world, minimal_view_info, display.width, display.height);
                 player_obj.bounds[i] = screen;
             }
-
             player_obj.position = transform.Translation;
-            player_obj.target = Ue4::world_to_screen(predicted_location, minimal_view_info, display.width, display.height);
+            // player_obj.target = Ue4::world_to_screen(aim_point, minimal_view_info, display.width, display.height);
             player_obj.location = screen_pos;
-            player_obj.head = Ue4::world_to_screen(head_position, minimal_view_info, display.width, display.height);
-            player_obj.root = Ue4::world_to_screen(root_position, minimal_view_info, display.width, display.height);
+            player_obj.head = head_location;
+            player_obj.root = root_location;
             player_obj.distance = distance;
-            player_obj.health = current_health;
+            player_obj.health = health;
+            // snprintf(player_obj.state, sizeof(player_obj.state), "%d", current_states);
+            // player_obj.state[sizeof(player_obj.state) - 1] = '\0';
+            player_obj.is_alive = is_alive;
+            player_obj.is_bot = is_bot;
             player_obj.team_id = team_id;
-            player_obj.camp_id = camp_id;
             player_obj.is_on_screen = is_on_screen;
-
             if (current_buffer.count_enemies < 200)
             {
                 current_buffer.players[current_buffer.count_enemies] = player_obj;
@@ -741,11 +655,13 @@ int main(int argc, char *argv[])
     }
 
     is_running.store(false, std::memory_order_release);
-    if (aimbot_thread_handle.joinable())
-        aimbot_thread_handle.join();
-    if (socket_thread_handle.joinable())
-        socket_thread_handle.join();
-    TouchInput::touchInputStop();
+    // if (aimbot_thread_handle.joinable())
+    //     aimbot_thread_handle.join();
+    // if (socket_thread_handle.joinable())
+    //     socket_thread_handle.join();
+    if (drawing_thread_handle.joinable())
+        drawing_thread_handle.join();
+    // TouchInput::touchInputStop();
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     return 0;
 }

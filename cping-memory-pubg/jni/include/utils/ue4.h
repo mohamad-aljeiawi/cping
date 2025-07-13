@@ -14,6 +14,8 @@ namespace Ue4
     std::string get_cached_class_name(uintptr_t g_names, uintptr_t actor, uintptr_t gname_buff[100], std::unordered_map<int, std::string> &g_class_name_cache, pid_t target_pid);
     std::string get_g_names(uintptr_t g_names, uintptr_t actor, uintptr_t gname_buff[100], pid_t target_pid);
     Structs::FMatrix rotator_to_matrix(Structs::FRotator rotation);
+    Structs::FVector rotator_to_vector(const Structs::FRotator &r);
+    Structs::FVector cross(const Structs::FVector &a, const Structs::FVector &b);
     Structs::FVector world_to_screen(Structs::FVector worldLocation, Structs::MinimalViewInfo camViewInfo, int screenWidth, int screenHeight);
     Structs::FTransform get_component_to_world(uintptr_t entity, pid_t process_pid);
     Structs::FTransform get_bone_transform(uintptr_t entity, int idx, pid_t process_pid);

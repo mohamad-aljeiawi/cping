@@ -51,7 +51,7 @@ class OverlayMenu : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private var gestureMenu: View? = null
     private var overlayMenuParams: WindowManager.LayoutParams? = null
     private var gestureMenuParams: WindowManager.LayoutParams? = null
-    private var isOverlayMenuVisible = false
+    private var isOverlayMenuVisible = true
     private var isGestureMenuVisible = false
 
 
@@ -209,7 +209,7 @@ class OverlayMenu : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 )
             }
         }
-        windowManager.addView(gestureMenu, gestureMenuParams)
+        windowManager.addView(overlayMenu, overlayMenuParams)
 
         return START_STICKY
     }

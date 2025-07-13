@@ -15,15 +15,23 @@ float display_height = 0.0f;
 ImColor player_color = IM_COL32(255, 0, 0, 255);
 ImColor text_color_player = IM_COL32(179, 173, 0, 255);
 
-static float aim_slide_x = 1665.1f;
-static float aim_slide_y = 475.0f;
-static float aim_zone_fire_x = 380.0f;
-static float aim_zone_fire_y = 180.0f;
-static float aim_zone_fire_radius = 150.0f;
-static float aim_fov = 300.0f;
-static float aim_interval = 7.0f;
-static float aim_speed = 30.0f;
-static float aim_rang_touch = 100.0f;
+std::atomic<bool> aim_is_aim{true};
+std::atomic<float> aim_fov{300.0f};
+std::atomic<float> aim_touch_x{1665.1f};
+std::atomic<float> aim_touch_y{475.0f};
+std::atomic<float> aim_touch_radius{100.0f};
+std::atomic<float> aim_zone_fire_x{380.0f};
+std::atomic<float> aim_zone_fire_y{180.0f};
+std::atomic<float> aim_zone_fire_radius{150.0f};
+std::atomic<float> aim_sensitivity_factor{0.04f};
+std::atomic<float> aim_latency_drag{0.13f};
+std::atomic<float> aim_swipe_duration{10.0f};
+
+std::atomic<bool> visual_box{false};
+std::atomic<bool> visual_health{false};
+std::atomic<bool> visual_name{false};
+std::atomic<bool> visual_marks{false};
+
 
 void socket_thread() {
     if (!socket_server.start()) return;
@@ -32,22 +40,49 @@ void socket_thread() {
         int client_socket = accept(socket_server.server_socket, nullptr, nullptr);
         if (client_socket < 0) {
             if (is_running.load(std::memory_order_relaxed)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             }
             continue;
         }
         socket_server.client_socket = client_socket;
-
+        auto last_seen_enemy_time = std::chrono::steady_clock::now();
+        bool should_update_buffer = true;
         while (is_running.load(std::memory_order_relaxed)) {
-            Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
-
             int write_idx = write_buffer_index.load(std::memory_order_relaxed);
             auto &current_buffer = game_buffers[write_idx];
-            current_buffer.clear();
-            if (!socket_server.receive_raw(&current_buffer, sizeof(Structs::GameData))) break;
+            Structs::MenuSettings menu_settings{
+                    visual_box.load(),
+                    visual_health.load(),
+                    visual_name.load(),
+                    visual_marks.load(),
+                    aim_is_aim.load(),
+                    aim_fov.load(),
+                    aim_touch_x.load(),
+                    aim_touch_y.load(),
+                    aim_touch_radius.load(),
+                    aim_zone_fire_x.load(),
+                    aim_zone_fire_y.load(),
+                    aim_zone_fire_radius.load(),
+                    aim_sensitivity_factor.load(),
+                    aim_latency_drag.load(),
+                    aim_swipe_duration.load()
+            };
 
-            ready_buffer_index.store(write_idx, std::memory_order_release);
-            write_buffer_index.store(1 - write_idx, std::memory_order_relaxed);
+            socket_server.receive_raw(&current_buffer, sizeof(Structs::GameData));
+            if (current_buffer.count_enemies > 0) {
+                last_seen_enemy_time = std::chrono::steady_clock::now();
+                should_update_buffer = true;
+            } else {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - last_seen_enemy_time).count();
+                should_update_buffer = (elapsed_ms >= 100);
+            }
+            socket_server.send_raw(&menu_settings, sizeof(Structs::MenuSettings));
+            if (should_update_buffer) {
+                ready_buffer_index.store(write_idx, std::memory_order_release);
+                write_buffer_index.store(1 - write_idx, std::memory_order_relaxed);
+            }
         }
 
         if (socket_server.client_socket != -1) {
@@ -91,11 +126,11 @@ Java_com_cping_jo_service_NativeRenderer_nativeOnDrawFrame(JNIEnv *env, jclass) 
 
     for (int i = 0; i < game_data.count_enemies; i++) {
         const Structs::Player &player = game_data.players[i];
-        if (!player.is_on_screen)
-            continue;
-
-        if (player.health <= 0)
-            continue;
+//        if (!player.is_on_screen)
+//            continue;
+//
+//        if (player.health <= 0)
+//            continue;
 
         Structs::FVector screen_pos = player.location;
         Structs::FVector bounds[8] = {player.bounds[0], player.bounds[1], player.bounds[2],
@@ -136,15 +171,18 @@ Java_com_cping_jo_service_NativeRenderer_nativeOnDrawFrame(JNIEnv *env, jclass) 
                                text_color_player, true, 1.1f);
     }
 
-    draw_list->AddCircle(ImVec2(display_width * 0.5f, display_height * 0.5f), aim_fov,
+    draw_list->AddCircle(ImVec2(display_width * 0.5f, display_height * 0.5f), aim_fov.load(),
                          IM_COL32(255, 255, 255, 100), 100, 3.0f);
-    draw_list->AddCircleFilled(ImVec2(aim_zone_fire_x, aim_zone_fire_y), aim_zone_fire_radius,
+    draw_list->AddCircleFilled(ImVec2(aim_zone_fire_x.load(), aim_zone_fire_y.load()),
+                               aim_zone_fire_radius.load(),
                                IM_COL32(0, 180, 180, 50));
-    draw_list->AddCircleFilled(ImVec2(aim_slide_x, aim_slide_y), aim_rang_touch,
+    draw_list->AddCircleFilled(ImVec2(aim_touch_x.load(), aim_touch_y.load()),
+                               aim_touch_radius.load(),
                                IM_COL32(180, 90, 0, 50), 100);
 
 
-    std::string connection_status = socket_server.client_socket != -1 ? "Client Connected" : "Waiting for Client";
+    std::string connection_status =
+            socket_server.client_socket != -1 ? "Client Connected" : "Waiting for Client";
     Utils::add_text_center(draw_list, connection_status, 40.0f,
                            ImVec2(display_width * 0.5f, display_height * 0.9f),
                            IM_COL32(150, 255, 150, 255), true, 1.0f);
@@ -162,13 +200,59 @@ Java_com_cping_jo_service_NativeRenderer_nativeSurfaceStop(JNIEnv *env, jclass c
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_cping_jo_utils_NativeBridge_onMenuEvent(JNIEnv *env, jobject thiz, jstring key, jboolean is_checked, jfloat slider_value) {
-    const char *nativeKey = env->GetStringUTFChars(key, nullptr);
-    std::string cppKey(nativeKey);
-    env->ReleaseStringUTFChars(key, nativeKey);
+Java_com_cping_jo_utils_NativeBridge_onMenuEvent(JNIEnv *env, jobject thiz, jint key,
+                                                 jboolean is_checked, jfloat slider_value) {
 
-    bool checked = static_cast<bool>(is_checked);
-    float value = static_cast<float>(slider_value);
+//    Logger::i("KEY DATA: %d,IS_CHECKED: %d,SLIDER: %f", key, is_checked, slider_value);
+    switch ((int) key) {
+        case static_cast<int>(MenuElement::MENU_VISUAL_ESP_BOX):
+            visual_box.store(is_checked);
+            break;
+        case static_cast<int>(MenuElement::MENU_VISUAL_ESP_HEALTH):
+            visual_health.store(is_checked);
+            break;
+        case static_cast<int>(MenuElement::MENU_VISUAL_ESP_NAME):
+            visual_name.store(is_checked);
+            break;
+        case static_cast<int>(MenuElement::MENU_VISUAL_ESP_MARKS):
+            visual_marks.store(is_checked);
+            break;
 
-    handleMenuEvent(cppKey, checked, value);
+
+        case static_cast<int>(MenuElement::MENU_COMBAT_IS_AIM):
+            aim_is_aim.store(is_checked);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_FOV):
+            aim_fov.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_TOUCH_X):
+            aim_touch_x.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_TOUCH_Y):
+            aim_touch_y.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_TOUCH_RADIUS):
+            aim_touch_radius.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_ZONE_FIRE_X):
+            aim_zone_fire_x.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_ZONE_FIRE_Y):
+            aim_zone_fire_y.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_ZONE_FIRE_RADIUS):
+            aim_zone_fire_radius.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_SENSITIVITY_FACTOR):
+            aim_sensitivity_factor.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_LATENCY_DRAG):
+            aim_latency_drag.store(slider_value);
+            break;
+        case static_cast<int>(MenuElement::MENU_COMBAT_AIM_SWIPE_DURATION):
+            aim_swipe_duration.store(slider_value);
+            break;
+        default:
+            break;
+    }
 }

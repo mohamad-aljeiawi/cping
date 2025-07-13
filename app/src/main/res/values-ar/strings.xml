@@ -22,22 +22,32 @@
 
     <!-- +++++++++Menu Screen++++++++++-->
     <!-- Visual-->
-    <string name="menu_visual_title">الرؤية</string>
-    <string name="menu_visual_title_header">رؤية اللاعب</string>
-    <string name="menu_visual_esp_group_title">رؤية</string>
-    <string name="menu_visual_esp_skeleton">الهيكل والخط</string>
-    <string name="menu_visual_esp_name">الاسم + لون الفريق</string>
-    <string name="menu_visual_esp_health">مؤشر الصحة</string>
+    <string name="menu_visual_title">الكاشف</string>
+    <string name="menu_visual_title_header">أنظمة الكاشف</string>
+
+    <string name="menu_visual_esp_group_title">إعدادات الكاشف</string>
     <string name="menu_visual_esp_box">إطار اللاعب</string>
-    <string name="menu_visual_esp_distance">مدى ظهور اللاعب</string>
+    <string name="menu_visual_esp_health">مُؤشِّر الصِّحَّة</string>
+    <string name="menu_visual_esp_name">الاسم والمسافة</string>
+    <string name="menu_visual_esp_marks">موضع الخصم</string>
+
     <!-- Combat-->
-    <string name="menu_combat_title">القتال</string>
-    <string name="menu_combat_title_header">أنظمة القتال</string>
-    <string name="menu_combat_is_aimbot">تصويب تلقائي</string>
-    <string name="menu_combat_fov">حدود الاستهداف (FOV)</string>
-    <string name="menu_combat_sensitivity">حساسية التصويب</string>
-    <!-- Setting-->
-    <string name="menu_setting_title">الإعداد</string>
-    <string name="menu_setting_title_header">الإعدادات</string>
+    <string name="menu_combat_title">القِتال</string>
+    <string name="menu_combat_title_header">أنظمة القِتال</string>
+
+    <string name="menu_combat_is_aim">تفعيل التصويب التِّلقائي</string>
+    <string name="menu_combat_aim_fov">نِطاق استهداف الخصم</string>
+
+    <string name="menu_combat_aim_touch_x">موضع اللَّمسة (X)</string>
+    <string name="menu_combat_aim_touch_y">موضع اللَّمسة (Y)</string>
+    <string name="menu_combat_aim_touch_radius">نِطاق اللَّمسة</string>
+
+    <string name="menu_combat_aim_zone_fire_x">موقع إطلاق النار (X)</string>
+    <string name="menu_combat_aim_zone_fire_y">موقع إطلاق النار (Y)</string>
+    <string name="menu_combat_aim_zone_fire_radius">نِطاق إطلاق النار</string>
+
+    <string name="menu_combat_aim_sensitivity_factor">معامل حَسَّاسيَّة التصويب</string>
+    <string name="menu_combat_aim_latency_drag">إزاحة التَّصويب لتعويض التَّأخير</string>
+    <string name="menu_combat_aim_swipe_duration">مُدَّة تنفيذ السَّحب التِّلقائي</string>
 
 </resources>

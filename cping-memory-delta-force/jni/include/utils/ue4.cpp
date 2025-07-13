@@ -9,6 +9,10 @@
 #include <cfloat>
 #include <cstdint>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace Ue4
 {
 
@@ -159,6 +163,27 @@ namespace Ue4
         matrix.M[3][3] = 1;
 
         return matrix;
+    }
+
+    Structs::FVector rotator_to_vector(const Structs::FRotator &r)
+    {
+        float DEG2RAD = 3.14159265f / 180.f;
+        float cp = std::cos(r.Pitch * DEG2RAD);
+        float sp = std::sin(r.Pitch * DEG2RAD);
+        float cy = std::cos(r.Yaw * DEG2RAD);
+        float sy = std::sin(r.Yaw * DEG2RAD);
+
+        return Structs::FVector(cp * cy, // X
+                                cp * sy, // Y
+                                sp);     // Z
+    }
+
+    Structs::FVector cross(const Structs::FVector &a, const Structs::FVector &b)
+    {
+        return Structs::FVector(
+            a.Y * b.Z - a.Z * b.Y,
+            a.Z * b.X - a.X * b.Z,
+            a.X * b.Y - a.Y * b.X);
     }
 
     Structs::FVector world_to_screen(Structs::FVector worldLocation, Structs::MinimalViewInfo camViewInfo, int screenWidth, int screenHeight)

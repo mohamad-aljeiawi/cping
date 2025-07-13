@@ -2,7 +2,7 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := cping_memory_delta_force
+LOCAL_MODULE := cping_memory_pubg
 LOCAL_CFLAGS := -Wno-error=format-security -fvisibility=hidden -ffunction-sections -fdata-sections -w
 LOCAL_CPPFLAGS  := -std=c++20
 LOCAL_CPPFLAGS += -fno-exceptions -fpermissive -frtti
