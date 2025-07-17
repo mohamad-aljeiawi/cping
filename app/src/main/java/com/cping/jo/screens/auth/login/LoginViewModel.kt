@@ -47,11 +47,11 @@ class LoginViewModel @Inject constructor(
                 return@launch
             }
 
-            storeAccessToken(token)
+            storeAccessToken(token, personId.toString())
             val deviceResult = appRepository.informationDeviceRegistration(personId)
             if (deviceResult !is APIResponse.Success) {
                 _loginState.value = APIResponse.Error(Exception("Device registration failed"))
-                storeAccessToken(null)
+                storeAccessToken(null, null)
                 return@launch
             }
 
@@ -60,12 +60,14 @@ class LoginViewModel @Inject constructor(
         }
     }
 
-    private fun storeAccessToken(token: String?) {
+    private fun storeAccessToken(token: String?, personId: String?) {
 
         if (token != null) {
             sharedPrefManager.putData(Constants.PREF_ACCESS_TOKEN, token)
+            sharedPrefManager.putData(Constants.PREF_PERSON_ID, personId.toString())
         } else {
             sharedPrefManager.removeData(Constants.PREF_ACCESS_TOKEN)
+            sharedPrefManager.removeData(Constants.PREF_PERSON_ID)
         }
     }
 

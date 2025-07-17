@@ -24,16 +24,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // addition android native c++ config
-        ndk {
-            abiFilters.add("arm64-v8a")
-        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -49,14 +45,6 @@ android {
     }
     buildFeatures {
         compose = true
-    }
-
-    // addition android native add path and cmake
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 }
 
@@ -106,7 +94,7 @@ dependencies {
     // Retrofit + Serialization
     implementation(libs.retrofit)
     implementation(libs.kotlinx.serialization.json)
-    
+
     //-- libsu for android root permission
     implementation(libs.topjohnwu.core)
     implementation(libs.topjohnwu.service)
@@ -120,6 +108,10 @@ dependencies {
 
     // font awesome icons
     implementation(libs.font.awesome.icons)
+
+    //-- img loader
+    implementation(libs.coil.compose)
+    implementation(libs.coil.compose.network)
 }
 
 

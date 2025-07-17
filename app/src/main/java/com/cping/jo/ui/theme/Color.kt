@@ -2,10 +2,6 @@ package com.cping.jo.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Cyber Neon Palette — balanced contrasts
-// Primary: Neon Green (#32E14D)
-// Backgrounds: Neutral grays to "break" the palette and improve readability
-
 /* ---------------------- LIGHT THEME ---------------------- */
 val primaryLight = Color(0xFF32E14D)
 val onPrimaryLight = Color(0xFFFFFFFF)

@@ -39,23 +39,8 @@ class SharedPrefManager @Inject constructor(@ApplicationContext private val cont
         return keyGenerator.generateKey()
     }
 
-    private fun generateIV(): ByteArray = ByteArray(Constants.IV_SIZE) { 0x0 }
-
     private fun getPrefs(): SharedPreferences =
         context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
-
-    fun getSharedPref(): SharedPreferences {
-        val prefs = getPrefs()
-        val storedVersion = prefs.getInt(Constants.PREF_VERSION_KEY, -1)
-
-        if (storedVersion < Constants.PREF_VERSION) {
-            context.deleteSharedPreferences(Constants.PREFS_NAME)
-            prefs.edit { clear() }
-            getPrefs().edit { putInt(Constants.PREF_VERSION_KEY, Constants.PREF_VERSION) }
-        }
-
-        return getPrefs()
-    }
 
     fun putData(key: String, value: String) {
         try {
@@ -73,7 +58,6 @@ class SharedPrefManager @Inject constructor(@ApplicationContext private val cont
             e.printStackTrace()
         }
     }
-
 
     fun getData(key: String): String? {
         return try {
@@ -98,9 +82,5 @@ class SharedPrefManager @Inject constructor(@ApplicationContext private val cont
 
     fun removeData(key: String) {
         getPrefs().edit { remove(key) }
-    }
-
-    fun clearAll() {
-        getSharedPref().edit { clear() }
     }
 }
