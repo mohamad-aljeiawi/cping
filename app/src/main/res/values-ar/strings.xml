@@ -19,6 +19,13 @@
     <string name="register_now">إنشاء حساب</string>
     <string name="register_cta">أنشئ حسابك مجانًا الآن</string>
 
+    <string name="main_stsrt">ابدأ</string>
+    <string name="main_stop">إيقاف</string>
+    <string name="main_user_premium">مميز</string>
+    <string name="main_user_free">مجاني</string>
+    <string name="main_games_available">ألالعاب المتاحة</string>
+    <string name="main_new_game">جديد</string>
+
 
     <!-- +++++++++Menu Screen++++++++++-->
     <!-- Visual-->

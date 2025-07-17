@@ -529,7 +529,7 @@ namespace android
                 {
                     static SurfaceComposerClientTransaction transaction;
 
-                    transaction.SetTrustedOverlay(result, true);
+                    transaction.SetTrustedOverlay(result, false);
                     transaction.Apply(false, true);
                 }
 

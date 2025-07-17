@@ -1,5 +1,6 @@
 package com.cping.jo.repository
 
+import android.R.attr.order
 import android.content.Context
 import android.util.Log
 import com.cping.jo.model.DeviceInfoObject
@@ -19,7 +20,13 @@ import javax.inject.Inject
 import io.github.jan.supabase.auth.user.UserSession
 import kotlin.toString
 import com.cping.jo.di.SupabaseClientProvider
+import com.cping.jo.model.GameObject
+import com.cping.jo.model.PersonObject
+import com.cping.jo.model.PlanObject
+import com.cping.jo.model.SubscriptionObject
+import com.cping.jo.model.UserProfileUi
 import com.cping.jo.utils.SharedPrefManager
+import io.github.jan.supabase.postgrest.query.Order
 
 class AppRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
@@ -98,6 +105,76 @@ class AppRepository @Inject constructor(
             APIResponse.Success(Unit)
         } catch (e: Exception) {
             Log.d("TAG_RESPONSE", "ERROR REQUEST INFO: ${e.toString()}")
+            APIResponse.Error(e)
+        }
+    }
+
+    suspend fun getCurrentUserProfile(
+        personId: String
+    ): APIResponse<UserProfileUi> {
+        return try {
+            val person = supabaseClient.postgrest.from("persons")
+                .select {
+                    filter {
+                        eq("id", personId)
+                    }
+
+                }
+                .decodeSingle<PersonObject>()
+
+            val subscription = supabaseClient.postgrest.from("subscriptions")
+                .select {
+                    filter { eq("person_id", person.id) }
+                    order("created_at", Order.DESCENDING)
+                    limit(1)
+                }
+                .decodeList<SubscriptionObject>().firstOrNull()
+
+            val planName = if (subscription != null) {
+                val plan = supabaseClient.postgrest.from("plans")
+                    .select {
+                        filter { eq("id", subscription.planId) }
+
+                    }
+                    .decodeSingle<PlanObject>()
+                plan.name
+            } else {
+                "الخطة المجانية"
+            }
+
+            val features = listOf(
+                if (person.isPremium == true) "حساب بريميوم" else "حساب مجاني",
+                "الوصول إلى الواجهة الرئيسية",
+                "تشغيل الألعاب بسهولة"
+            )
+
+            val userProfile = UserProfileUi(
+                fullName = "${person.firstName} ${person.lastName}",
+                username = person.username,
+                isPremium = person.isPremium,
+                currentPlan = planName,
+                subscriptionStatus = subscription?.status ?: "none",
+                features = features
+            )
+
+            APIResponse.Success(userProfile)
+        } catch (e: Exception) {
+            APIResponse.Error(e)
+        }
+    }
+
+    suspend fun getGames(): APIResponse<List<GameObject>> {
+        return try {
+            val games = supabaseClient
+                .postgrest
+                .from("games")
+                .select()
+                .decodeList<GameObject>()
+                .sortedByDescending { it.createdAt }
+
+            APIResponse.Success(games)
+        } catch (e: Exception) {
+            Log.e("TAG_RESPONSE", "ERROR FETCHING GAMES: ${e.message}")
             APIResponse.Error(e)
         }
     }

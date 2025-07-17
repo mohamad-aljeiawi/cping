@@ -14,8 +14,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.cping.jo.navigation.graphs.RootGraph
-import com.cping.jo.service.OverlayMenu
-import com.cping.jo.service.OverlayView
 import com.cping.jo.ui.theme.CpingTheme
 import com.cping.jo.utils.Constants
 import com.cping.jo.utils.Utils
@@ -29,8 +27,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         init {
-            System.loadLibrary("cping_socket")
-
             Shell.enableVerboseLogging = BuildConfig.DEBUG
             Shell.setDefaultBuilder(
                 Shell.Builder.create()
@@ -93,9 +89,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        OverlayView.hideOverlay(this)
-        OverlayMenu.hideOverlay(this)
-        Utils.processBuilderShell("pkill -f cping_memory")
     }
 }
 

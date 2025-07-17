@@ -19,3 +19,33 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Keep ViewModels
+-keep class androidx.lifecycle.ViewModel
+
+# Keep Hilt injection
+-keep class dagger.hilt.** { *; }
+-keep class javax.inject.** { *; }
+
+# Keep Supabase models and API responses
+-keepclassmembers class com.cping.jo.model.** { *; }
+
+# Coil (image loading)
+-keep class coil.** { *; }
+
+# For kotlinx.serialization
+-keep class kotlinx.serialization.** { *; }
+-keep @kotlinx.serialization.Serializable class ** { *; }
+
+# Required for reflection and annotations (e.g., Hilt, Dagger)
+-keepattributes *Annotation*
+-keepclassmembers class ** {
+    @** *;
+}

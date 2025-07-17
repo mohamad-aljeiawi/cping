@@ -50,6 +50,9 @@ namespace Offset
     constexpr uintptr_t team_id = 0x928;     // int TeamID;
     constexpr uintptr_t bis_ai = 0x9D9;      // bool bEnsure;
 
+    // //-- Class: UAEPlayerController
+    constexpr uintptr_t team_id_local = 0x8C8; // int TeamID;
+
     //-- Class: STExtraCharacter.UAECharacter.Character.Pawn.Actor.Object
     constexpr uintptr_t health = 0xDB0;         // float Health;
     constexpr uintptr_t bis_dead = 0xDCC;       // bool bDead;

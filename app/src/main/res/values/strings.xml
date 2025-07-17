@@ -17,6 +17,15 @@
     <string name="register_now">Sign up</string>
     <string name="register_cta">Create your account for free now</string>
 
+
+    <string name="main_stsrt">Start</string>
+    <string name="main_stop">Stop</string>
+    <string name="main_user_premium">Premium</string>
+    <string name="main_user_free">Free</string>
+    <string name="main_games_available">Games available</string>
+    <string name="main_new_game">New</string>
+
+
     <!-- +++++++++Menu Screen++++++++++-->
     <!-- Visual -->
     <string name="menu_visual_title">ESP</string>

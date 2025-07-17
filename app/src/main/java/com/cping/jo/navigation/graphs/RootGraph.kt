@@ -1,6 +1,5 @@
 package com.cping.jo.navigation.graphs
 
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -17,8 +16,7 @@ fun RootGraph(onSplashFinished: () -> Unit = {}) {
     val viewModel = hiltViewModel<RootViewModel>()
 
     LaunchedEffect(viewModel.isLogin) {
-        if (viewModel.isLogin != null){
-            Log.d("TAG_TOKEN", "TOKEN_1: ${viewModel.isLogin}")
+        if (viewModel.isLogin != null) {
             onSplashFinished()
         }
     }

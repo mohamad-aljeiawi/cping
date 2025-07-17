@@ -27,6 +27,7 @@
 #include <chrono>
 #include <functional>
 #include <thread>
+#include <fstream>
 #ifdef __ANDROID__
 #include <pthread.h>
 #include <sys/resource.h>
