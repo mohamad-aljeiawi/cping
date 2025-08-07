@@ -247,7 +247,7 @@ void aimbot_thread()
             float dy = player.target.Y - cy;
             float screen_distance = sqrtf(dx * dx + dy * dy);
 
-            if (world_distance <= 50.0f && screen_distance <= aim_fov.load(std::memory_order_relaxed))
+            if (world_distance <= 5.0f && screen_distance <= aim_fov.load(std::memory_order_relaxed))
             {
                 close_enemy_found = true;
                 if (world_distance < best_world_distance)
@@ -835,7 +835,7 @@ int main(int argc, char *argv[])
                 Structs::FVector target_position = head_position;
                 Structs::FVector shooter_position = minimal_view_info.Location;
                 float gravity_scale = gravity_scale_local;
-                float bullet_speed = 45000.f; // this game speed bullet 1.0
+                float bullet_speed = 75000.f; // this game speed bullet 1.0
                 Structs::FVector acceleration = target_acceleration;
                 Structs::FVector velocity = target_velocity;
                 float latency_drag = aim_latency_drag.load(); // 130ms latency example

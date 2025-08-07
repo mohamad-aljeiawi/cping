@@ -79,6 +79,7 @@ namespace Offset
     constexpr uintptr_t cache_cur_weapon = 0x1540; // struct AWeaponBase* CacheCurWeapon;
 
     // struct AWeaponBase : AGPWeaponBase
+    constexpr uintptr_t weapon_data_component_list = 0xA98;      // struct TArray<struct TWeakObjectPtr<struct UGPWeaponDataComponentBase>> GPWeaponDataComponentList; // 0xA98(0x10)
     constexpr uintptr_t current_modular_weapon_desc = 0xA68;     // struct UGPModularWeaponDesc* CurrentModularWeaponDesc;
     constexpr uintptr_t cached_attribute_set_fire_mode = 0x1108; // struct UGPWeaponAttributeSetFireMode* CachedAttributeSetFireMode;
     constexpr uintptr_t weapon_id = 0x810;                       // uint64_t WeaponID;

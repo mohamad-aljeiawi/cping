@@ -23,7 +23,7 @@ import javax.inject.Inject
 class LoginViewModel @Inject constructor(
     private val appRepository: AppRepository,
     private val sharedPrefManager: SharedPrefManager,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _loginState = MutableStateFlow<APIResponse<LoginOtpObject>>(APIResponse.Idle())

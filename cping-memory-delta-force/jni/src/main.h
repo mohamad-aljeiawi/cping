@@ -33,6 +33,11 @@
 #include <sys/resource.h>
 #endif
 
+constexpr int MAX_ITERS = 10;                  // number of convergence iterations
+constexpr float TO_DEGREES = 57.2957795f;      // conversion factor from radians to degrees
+constexpr float DEG2RAD = 3.14159265f / 180.f; // conversion factor from degrees to radians
+constexpr float G_CM = 980.f;                  // acceleration due to gravity in cm/s² in PUBG
+
 const std::vector<uint8_t> key = {
     0xfb, 0x3d, 0x32, 0xff, 0x97, 0xdf, 0xb9, 0x27, 0x31, 0xe9, 0x8c, 0x92,
     0xb6, 0x9f, 0x5b, 0x4a, 0xeb, 0x91, 0x75, 0xd2, 0x98, 0xa0, 0xf7, 0xa0,
