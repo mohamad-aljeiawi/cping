@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 class MainViewModel @Inject constructor(
     private val appRepository: AppRepository,
     private val sharedPrefManager: SharedPrefManager,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val _userProfileState =
         MutableStateFlow<APIResponse<UserProfileUi>>(APIResponse.Loading())

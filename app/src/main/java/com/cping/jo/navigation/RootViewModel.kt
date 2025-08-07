@@ -12,9 +12,10 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
 import javax.inject.Inject
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val sharedPrefManager: SharedPrefManager,
@@ -33,7 +34,7 @@ class RootViewModel @Inject constructor(
                 return@launch
             }
             val session = supabaseClient.auth.sessionManager.loadSession()
-            val isValid = session?.expiresAt?.let { it > Clock.System.now() } == true
+            val isValid = session?.expiresAt?.let { it > kotlin.time.Clock.System.now() } == true
             isLogin = isValid
         }
     }

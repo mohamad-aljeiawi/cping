@@ -1,6 +1,5 @@
 package com.cping.jo.repository
 
-import android.R.attr.order
 import android.content.Context
 import android.util.Log
 import com.cping.jo.model.DeviceInfoObject
@@ -27,10 +26,11 @@ import com.cping.jo.model.SubscriptionObject
 import com.cping.jo.model.UserProfileUi
 import com.cping.jo.utils.SharedPrefManager
 import io.github.jan.supabase.postgrest.query.Order
+import kotlin.time.ExperimentalTime
 
 class AppRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val sharedPrefManager: SharedPrefManager
 ) {
 
@@ -58,6 +58,7 @@ class AppRepository @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalTime::class)
     suspend fun loginUser(accessToken: String): APIResponse<Unit> {
         return try {
             val session = UserSession(
@@ -143,7 +144,7 @@ class AppRepository @Inject constructor(
             }
 
             val features = listOf(
-                if (person.isPremium == true) "حساب بريميوم" else "حساب مجاني",
+                if (person.isPremium) "حساب بريميوم" else "حساب مجاني",
                 "الوصول إلى الواجهة الرئيسية",
                 "تشغيل الألعاب بسهولة"
             )

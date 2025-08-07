@@ -1,9 +1,7 @@
 package com.cping.jo
 
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,12 +13,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.cping.jo.navigation.graphs.RootGraph
 import com.cping.jo.ui.theme.CpingTheme
-import com.cping.jo.utils.Constants
-import com.cping.jo.utils.Utils
 import com.russhwolf.settings.BuildConfig
 import com.topjohnwu.superuser.Shell
 import dagger.hilt.android.AndroidEntryPoint
-
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -37,50 +32,33 @@ class MainActivity : ComponentActivity() {
     }
 
     var splashState by mutableStateOf(true)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        actionBar?.hide()
+        actionBar?.hide() 
+
         val splashScreen = installSplashScreen()
-        splashScreen.setKeepOnScreenCondition {
-            splashState
-        }
+        splashScreen.setKeepOnScreenCondition { splashState }
 
-        Shell.getShell {
-            if (it.isRoot) {
-                Utils.processBuilderShell("settings put global block_untrusted_touches 1")
-                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.WRITE_EXTERNAL_STORAGE")
-                Utils.processBuilderShell("pm grant ${Constants.PACKAGE_NAME} android.permission.READ_EXTERNAL_STORAGE")
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    !Environment.isExternalStorageManager()
-                ) {
-                    Utils.processBuilderShell("am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d package:${Constants.PACKAGE_NAME}")
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    !Settings.canDrawOverlays(this)
-                ) {
-                    Utils.processBuilderShell("am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION -d package:${Constants.PACKAGE_NAME}")
-                }
-
+        Shell.getShell { shell ->
+            shell.newJob().add("id").submit()
+            if (shell.isRoot) {
+                shell.newJob().add("settings put global block_untrusted_touches 1").submit()
                 setContent {
                     CpingTheme {
-                        RootGraph(
-                            onSplashFinished = {
-                                splashState = false
-                            }
-                        )
+                        RootGraph {
+                            splashState = false
+                        }
                     }
                 }
             } else {
+                Toast.makeText(this, "Root access not granted", Toast.LENGTH_LONG).show()
                 setContent {
                     CpingTheme {
-                        RootGraph(
-                            onSplashFinished = {
-                                splashState = false
-                            }
-                        )
+                        RootGraph {
+                            splashState = false
+                        }
                     }
                 }
             }

@@ -14,7 +14,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import androidx.core.content.edit
 
-class SharedPrefManager @Inject constructor(@ApplicationContext private val context: Context) {
+class SharedPrefManager @Inject constructor(@param:ApplicationContext private val context: Context) {
 
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
