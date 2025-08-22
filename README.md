@@ -1,4 +1,4 @@
-# cping-app
+# cping
 
 A native Android application designed for rooted devices, featuring C++-powered in-game enhancements. The app integrates a Telegram bot for OTP-based authentication and utilizes a Supabase backend for database management, file storage, and a presenter for managing game modification files.
 
@@ -27,7 +27,6 @@ A native Android application designed for rooted devices, featuring C++-powered 
 - [Prerequisites](#️-prerequisites)
 - [Project Structure](#-project-structure)
 - [Installation & Setup](#-installation--setup)
-- [Configuration](#-configuration)
 - [Running the Application](#️-running-the-application)
 - [Testing & Verification](#-testing--verification)
 - [Native Memory Modules](#-native-memory-modules)
@@ -101,7 +100,7 @@ Set the following system environment variables:
 ## 📁 Project Structure
 
 ```
-cping-app/
+cping/
 ├── app/                         # Android application (Kotlin)
 │   ├── src/main/
 │   │   ├── java/com/cping/jo/
@@ -130,8 +129,8 @@ cping-app/
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/username/cping-app.git
-cd cping-app
+git clone https://github.com/mohamad-aljeiawi/cping.git
+cd cping
 ```
 
 ### Step 2: Supabase Database Setup
@@ -371,7 +370,7 @@ For detailed instructions on building and running these components, follow the t
 
 ## 🤝 Contributing
 
-We welcome contributions to improve cping-app! Please follow these guidelines:
+We welcome contributions to improve cping! Please follow these guidelines:
 
 ### Development Workflow
 
