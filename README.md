@@ -10,7 +10,7 @@ A native Android application designed for rooted devices, featuring C++-powered 
 **Application Screenshots**
 | Login Screen | Game List |
 | :---: | :---: |
-| <img src="https://github.com/user-attachments/assets/ded17b7b-1a06-40ed-9716-8761233ac3d5" width="300"/> | <img src="https://github.com/user-attachments/assets/6ee581ee-1f9a-4ce0-a1be-842895ce906a" width="300"/> |
+| <img src="https://github.com/user-attachments/assets/6ee581ee-1f9a-4ce0-a1be-842895ce906a" width="300"/> | <img src="https://github.com/user-attachments/assets/ded17b7b-1a06-40ed-9716-8761233ac3d5" width="300"/> |
 
 **In-Game Video Previews**
 | ESP & Control Panel | Aimbot in Action |
@@ -295,8 +295,6 @@ VALUES
  'https://<YOUR-PROJECT-REF>.supabase.co/storage/v1/object/public/cping-files/cping_memory_delta_force_v9',
  '2025-07-16 14:43:39.357099');
 ```
-
-⚠️ **Note**: Replace `<YOUR-PROJECT-REF>` with your actual Supabase project reference (visible in your Supabase dashboard URL).
 
 ### Upload New Files
 
