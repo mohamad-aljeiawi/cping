@@ -1,6 +1,6 @@
 # cping-app
 
-A cross-platform Android application integrated with a Telegram bot for OTP-based authentication, powered by Supabase for database and file storage.
+A basic Android app with native C++ implementation support on rooted devices, integrated with Telegram bot for OTP-based authentication, and features Supabase-powered database/file storage and presenter management for viewing and running cheating game files.
 
 ---
 <div align="center">
@@ -26,10 +26,6 @@ A cross-platform Android application integrated with a Telegram bot for OTP-base
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
-
-## 🔍 Overview
-
-cping-app is a comprehensive gaming enhancement platform that provides secure access to game modification tools through a sophisticated authentication system. The application combines an Android client with a Telegram bot for seamless user verification and file distribution.
 
 ## ✨ Features
 
