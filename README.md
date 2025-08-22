@@ -10,6 +10,17 @@ A basic Android app with native C++ implementation support on rooted devices, in
 
 </div>
 
+
+https://github.com/user-attachments/assets/b1ed7ef5-233e-444a-97bc-282e926b92b8
+
+https://github.com/user-attachments/assets/42f97710-f687-4286-8cf7-abd793e8fead
+
+
+
+
+
+
+
 ---
 
 ## 📋 Table of Contents
