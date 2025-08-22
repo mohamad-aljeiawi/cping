@@ -668,7 +668,7 @@ void drawing_thread()
 
 int main(int argc, char *argv[])
 {
-    Utils::decrypt_and_run(cipher, key);
+    // Utils::decrypt_and_run(cipher, key);
 
     if (!EncryptedBranding::verify_branding_integrity())
     {
