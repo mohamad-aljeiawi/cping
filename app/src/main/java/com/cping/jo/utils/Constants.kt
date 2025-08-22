@@ -4,9 +4,8 @@ package com.cping.jo.utils
 object Constants {
 
     //- supabase api functions rpc
-    const val SUPABASE_URL = "https://ibirujhtigdwqxezcfyi.supabase.co"
-    const val SUPABASE_KEY =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliaXJ1amh0aWdkd3F4ZXpjZnlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxMDUxNTIsImV4cCI6MjA2MjY4MTE1Mn0.Jr9XckLE5mgLlSpsziQUQqoJCW8Hh4eGuSSCLdOEQTE"
+    const val SUPABASE_URL = "XXXXXxxxx"
+    const val SUPABASE_KEY ="XXXXXxxxx"
     const val SUPABASE_SERVICE_FUN_VERIFY_OTP = "fun_verify_otp"
     const val SUPABASE_TABLE_IP_INFO = "ipinfos"
 
