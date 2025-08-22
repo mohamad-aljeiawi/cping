@@ -2,12 +2,15 @@
 
 A cross-platform Android application integrated with a Telegram bot for OTP-based authentication, powered by Supabase for database and file storage.
 
+---
 <div align="center">
 
 | <img src="https://github.com/user-attachments/assets/ded17b7b-1a06-40ed-9716-8761233ac3d5" width="300"/> | <img src="https://github.com/user-attachments/assets/6ee581ee-1f9a-4ce0-a1be-842895ce906a" width="300"/> |
 |---|---|
 
 </div>
+
+---
 
 ## 📋 Table of Contents
 
