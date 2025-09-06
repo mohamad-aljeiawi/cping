@@ -6,7 +6,7 @@ adb shell su -c "kill -9 $(pidof cping_memory_pubg)"
 
 :: Build using ndk-build
 echo Building with NDK...
-call "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/ndk-build"
+call "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/ndk-build"
 if %ERRORLEVEL% NEQ 0 (
     echo Build failed!
     pause
@@ -15,7 +15,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: Push executable
 echo Pushing cping_memory_pubg to device...
-adb push "C:/Users/mobil/Desktop/project/android/cping/cping-memory-pubg/libs/arm64-v8a/cping_memory_pubg" "/data/local/tmp/"
+adb push "C:/Users/mohamadaljeiawi/Desktop/project/cping/cping-memory-pubg" "/data/local/tmp/"
 if %ERRORLEVEL% NEQ 0 (
     echo Push failed!
     pause

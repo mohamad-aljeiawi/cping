@@ -4,15 +4,15 @@
       "name": "Android",
       "includePath": [
         "${workspaceFolder}/**",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/sources/cxx-stl/system/**",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/**",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/android",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/include",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/aarch64-linux-android",
-        "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/EGL"
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/sources/cxx-stl/system/**",
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/**",
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/android",
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/include",
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/aarch64-linux-android",
+        "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/EGL"
       ],
       "defines": ["__ANDROID__", "EGL_OPENGL_ES3_BIT_KHR=0x00000040"],
-      "compilerPath": "C:/Users/mobil/AppData/Local/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
+      "compilerPath": "C:/Users/mohamadaljeiawi/AppData/Local/Android/Sdk/ndk/29.0.14033849/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
       "cStandard": "c23",
       "cppStandard": "c++20",
       "intelliSenseMode": "clang-x64"
