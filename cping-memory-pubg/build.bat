@@ -15,7 +15,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: Push executable
 echo Pushing cping_memory_pubg to device...
-adb push "C:/Users/mohamadaljeiawi/Desktop/project/cping/cping-memory-pubg" "/data/local/tmp/"
+adb push "C:/Users/mohamadaljeiawi/Desktop/project/cping/cping-memory-pubg/libs/arm64-v8a/cping_memory_pubg" "/data/local/tmp/"
 if %ERRORLEVEL% NEQ 0 (
     echo Push failed!
     pause

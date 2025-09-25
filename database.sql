@@ -183,6 +183,26 @@ drop function if exists fun_generate_unique_otp cascade;
 
 drop function if exists fun_verify_otp cascade;
 
+drop function if exists hmac cascade;
+
+-- ----------------------------------------------------------------------------
+-- Function: public.hmac()
+-- Purpose:
+--   - HMAC function for JWT token generation
+--   - Wrapper around extensions.hmac with proper encoding
+-- Notes:
+--   - Uses UTF-8 encoding for both data and key
+--   - Immutable and parallel safe for performance
+-- ----------------------------------------------------------------------------
+create or replace function public.hmac(data text, key text, type text)
+returns bytea
+language sql
+immutable
+parallel safe
+as $$
+  select extensions.hmac(convert_to(data, 'utf8'), convert_to(key, 'utf8'), type);
+$$;
+
 -- ----------------------------------------------------------------------------
 -- Function: public.is_admin()
 -- Purpose:
@@ -273,16 +293,22 @@ $$;
 --   - Generate JWT token with user ID, Telegram ID, device hash, role, and expiration.
 -- Notes:
 --   - SECURITY DEFINER so it can access public.otps and public.ipinfos.
---   - search_path pinned to 'public, pg_temp' for safety.
+--   - search_path pinned to 'public, extensions, pg_temp' for safety.
 --   - Handles NULL values gracefully.
 --   - Raises exception if OTP is invalid or device location is not allowed.
+--   - Uses new JWT implementation with updated HMAC function
 -- ----------------------------------------------------------------------------
 create or replace function public.fun_verify_otp (
   otp_input text,
   ip_input text,
   region_input text,
   device_hash_input text
-) returns table (person_id bigint, token text) language plpgsql security definer as $$
+)
+returns table (person_id bigint, token text)
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
 declare
   var_person_id bigint;
   var_telegram_id bigint;
@@ -290,7 +316,6 @@ declare
   var_is_existing_device boolean;
   var_device_count int;
 begin
-
   select
     p.id,
     p.telegram_id,
@@ -314,13 +339,13 @@ begin
   from (
     select distinct ip, region, device_hash
     from ipinfos
-    where person_id = var_person_id
+    where ipinfos.person_id = var_person_id
   ) as location_set;
 
   select exists (
     select 1
     from ipinfos
-    where person_id = var_person_id
+    where ipinfos.person_id = var_person_id
       and ip = ip_input
       and region = region_input
       and device_hash = device_hash_input
@@ -333,7 +358,7 @@ begin
   return query
   select
     var_person_id as person_id,
-    extensions.sign(
+    sign(
       json_build_object(
         'sub', var_person_id::text,
         'telegram_id', var_telegram_id::text,

@@ -354,7 +354,7 @@ For detailed instructions on building and running these components, follow the t
 - **Bot Status**: Verify the bot is active by testing the `/start` command.
 
 #### Database Connection Issues
-- **JWT Secret**: Confirm the JWT secret was properly replaced in the `fun_verify_otp` function.
+- **JWT Secret**: Confirm the JWT secret was properly replaced in the `fun_verify_otp` function (look for `jwt_here` placeholder).
 - **Network**: Check internet connectivity and Supabase project status.
 
 ### Debug Checklist
