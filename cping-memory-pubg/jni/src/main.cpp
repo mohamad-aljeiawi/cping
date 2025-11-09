@@ -721,7 +721,8 @@ int main(int argc, char *argv[])
         current_buffer.clear();
 
         uintptr_t u_g_world = Memory::Read<uintptr_t>(lib_base.load() + Offset::g_world, target_pid);
-        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x58, target_pid) + 0x78, target_pid);
+        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x810, target_pid) + 0x78, target_pid);
+        // uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x58, target_pid) + 0x78, target_pid);
         uintptr_t u_level = Memory::Read<uintptr_t>(u_world + Offset::persistent_level, target_pid);
         uintptr_t actors_list = Ue4::get_actors_array(u_level, Offset::u_level_to_a_actors, 0x448, target_pid);
         uintptr_t u_level_to_a_actors = Memory::Read<uintptr_t>(actors_list, target_pid);
@@ -775,7 +776,8 @@ int main(int argc, char *argv[])
                 continue;
 
             int current_states = Memory::Read<int>(actor + Offset::current_states, target_pid);
-            if (current_states == 262144 || current_states == 6 || current_states == 1700229408 || current_states == 0)
+            printf("current_states %d \n\n",current_states);
+            if (current_states == 262144 || current_states == 6 || current_states == 1700229408)
                 continue;
 
             float health = Memory::Read<float>(actor + Offset::health, target_pid);
