@@ -11,7 +11,7 @@ namespace Offset
     //-- Base Offset UWorld
 
     constexpr uintptr_t u_level_to_a_actors = 0xa0;
-    constexpr uintptr_t component_to_world = 0x1b8;
+    constexpr uintptr_t component_to_world = 0x210;
 
     //-- class UEngine : public UObject
     constexpr uintptr_t game_viewport = 0x810; // UGameViewportClient* GameViewport;
@@ -29,9 +29,8 @@ namespace Offset
     //-- class UPlayer : public UObject
     constexpr uintptr_t player_controller = 0x30; // APlayerController* PlayerController;
 
-
     //-- class AActor : public UObject
-    constexpr uintptr_t root_component = 0x208; // SceneComponent* RootComponent;
+    constexpr uintptr_t root_component = 0x208; // USceneComponent* RootComponent;
 
     //-- class APlayerController : public AController
     constexpr uintptr_t player_camera_manager = 0x548; // APlayerCameraManager* PlayerCameraManager;
@@ -45,7 +44,7 @@ namespace Offset
     constexpr uintptr_t character_movement = 0x518; // UCharacterMovementComponent* CharacterMovement;
     constexpr uintptr_t capsule_component = 0x520; // UCapsuleComponent* CapsuleComponent;
 
-    //-- class USkeletalMeshComponent : public USkinnedMeshComponent
+    //-- class USkinnedMeshComponent : public UMeshComponent
     constexpr uintptr_t cached_local_bounds = 0xae4; // FBoxSphereBounds CachedLocalBounds;
 
     //-- class UStaticMeshComponent : public UMeshComponent

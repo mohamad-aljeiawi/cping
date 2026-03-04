@@ -768,14 +768,15 @@ int main(int argc, char *argv[])
             }
 
             int team_id = Memory::Read<int>(actor + Offset::team_id, target_pid);
-            if (team_id_local == team_id || team_id <= -1 || team_id >= 1000)
+            if (team_id_local == team_id || team_id <= -1 || team_id == std::numeric_limits<int>::max())
                 continue;
+            
             int player_death = Memory::Read<int>(actor + Offset::bis_dead, target_pid);
             if (player_death)
                 continue;
 
             int current_states = Memory::Read<int>(actor + Offset::current_states, target_pid);
-            if (current_states == 262144 || current_states == 6 || current_states == 1700229408)
+            if (current_states < 0 || current_states == 262144 || current_states == 6 || current_states == 1700229408)
                 continue;
 
             float health = Memory::Read<float>(actor + Offset::health, target_pid);
