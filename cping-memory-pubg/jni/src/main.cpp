@@ -720,16 +720,16 @@ int main(int argc, char *argv[])
         auto &current_buffer = game_buffers[write_idx];
         current_buffer.clear();
 
-        uintptr_t u_g_world = Memory::Read<uintptr_t>(lib_base.load() + Offset::g_world, target_pid);
-        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x810, target_pid) + 0x78, target_pid);
-        // uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_g_world + 0x58, target_pid) + 0x78, target_pid);
+        uintptr_t g_engine = Memory::Read<uintptr_t>(lib_base.load() + Offset::g_engine, target_pid);
+        uintptr_t u_world = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(g_engine + Offset::game_viewport, target_pid) + Offset::world, target_pid);
+        uintptr_t net_driver = Memory::Read<uintptr_t>(u_world + Offset::net_driver, target_pid);
+        uintptr_t server_connection = Memory::Read<uintptr_t>(net_driver + Offset::server_connection, target_pid);
+        uintptr_t player_controller = Memory::Read<uintptr_t>(server_connection + Offset::player_controller, target_pid);
         uintptr_t u_level = Memory::Read<uintptr_t>(u_world + Offset::persistent_level, target_pid);
-        uintptr_t actors_list = Ue4::get_actors_array(u_level, Offset::u_level_to_a_actors, 0x448, target_pid);
+        uintptr_t actors_list = Ue4::get_actors_array(u_level, Offset::u_level_to_a_actors, 0x448 /* encrypted actors offset */, target_pid);
         uintptr_t u_level_to_a_actors = Memory::Read<uintptr_t>(actors_list, target_pid);
         int u_level_to_a_actors_count = Memory::Read<int>(actors_list + sizeof(uintptr_t), target_pid);
 
-        // local player
-        uintptr_t player_controller = Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(Memory::Read<uintptr_t>(u_world + 0x38, target_pid) + 0x78, target_pid) + 0x30, target_pid);
         uintptr_t acknowledged_pawn = Memory::Read<uintptr_t>(player_controller + Offset::acknowledged_pawn, target_pid);
         uintptr_t character_movement_local = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::character_movement, target_pid);
         uintptr_t weapon_manager = Memory::Read<uintptr_t>(acknowledged_pawn + Offset::weapon_manager, target_pid);
@@ -770,13 +770,11 @@ int main(int argc, char *argv[])
             int team_id = Memory::Read<int>(actor + Offset::team_id, target_pid);
             if (team_id_local == team_id || team_id <= -1 || team_id >= 1000)
                 continue;
-
             int player_death = Memory::Read<int>(actor + Offset::bis_dead, target_pid);
             if (player_death)
                 continue;
 
             int current_states = Memory::Read<int>(actor + Offset::current_states, target_pid);
-            printf("current_states %d \n\n",current_states);
             if (current_states == 262144 || current_states == 6 || current_states == 1700229408)
                 continue;
 
