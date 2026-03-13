@@ -6,7 +6,7 @@
 namespace Offset
 {
     //-- Base Offset G-Engine
-    constexpr uintptr_t g_engine = 0xE840148;
+    constexpr uintptr_t g_engine = 0xEA10468;
 
     //-- Base Offset UWorld
 
@@ -33,8 +33,8 @@ namespace Offset
     constexpr uintptr_t root_component = 0x208; // USceneComponent* RootComponent;
 
     //-- class APlayerController : public AController
-    constexpr uintptr_t player_camera_manager = 0x548; // APlayerCameraManager* PlayerCameraManager;
     constexpr uintptr_t acknowledged_pawn = 0x528; // APawn* AcknowledgedPawn;
+    constexpr uintptr_t player_camera_manager = 0x548; // APlayerCameraManager* PlayerCameraManager;
 
     //-- class APlayerCameraManager : public AActor
     constexpr uintptr_t camera_cache = 0x520; // FCameraCacheEntry CameraCache;
@@ -45,14 +45,14 @@ namespace Offset
     constexpr uintptr_t capsule_component = 0x520; // UCapsuleComponent* CapsuleComponent;
 
     //-- class USkinnedMeshComponent : public UMeshComponent
-    constexpr uintptr_t cached_local_bounds = 0xae4; // FBoxSphereBounds CachedLocalBounds;
+    constexpr uintptr_t cached_local_bounds = 0xaec; // FBoxSphereBounds CachedLocalBounds;
 
     //-- class UStaticMeshComponent : public UMeshComponent
-    constexpr uintptr_t static_mesh = 0x988; // UStaticMesh* StaticMesh;
+    constexpr uintptr_t static_mesh = 0x990; // UStaticMesh* StaticMesh;
 
     //-- class UCapsuleComponent : public UShapeComponent
-    constexpr uintptr_t capsule_half_height = 0x950; // float CapsuleHalfHeight;
-    constexpr uintptr_t capsule_radius = 0x954; // float CapsuleRadius;
+    constexpr uintptr_t capsule_half_height = 0x958; // float CapsuleHalfHeight;
+    constexpr uintptr_t capsule_radius = 0x95c; // float CapsuleRadius;
 
     //-- class UMovementComponent : public UActorComponent
     constexpr uintptr_t velocity = 0x18c; // Vector Velocity;
@@ -64,19 +64,19 @@ namespace Offset
     //-- class AUAECharacter : public ACharacter
     constexpr uintptr_t player_name = 0x960; // FString PlayerName;
     constexpr uintptr_t team_id = 0x998; // int32 TeamID;
-    constexpr uintptr_t bis_ai = 0xa49; // bool bEnsure;
+    constexpr uintptr_t bis_ai = 0xa59; // bool bEnsure;
 
     //-- class AUAEPlayerController : public ALuaPlayerController
     constexpr uintptr_t team_id_local = 0x940; // int32 TeamID;
 
     //-- class ASTExtraCharacter : public AUAECharacter
-    constexpr uintptr_t health = 0xe28; // float Health;
-    constexpr uintptr_t bis_dead = 0xe44; // uint8 bDead;
-    constexpr uintptr_t current_states = 0x1018; // uint64 CurrentStates;
-    constexpr uintptr_t b_is_gun_ads = 0x10e1;  // bool bIsGunADS;
+    constexpr uintptr_t health = 0xe60; // float Health;
+    constexpr uintptr_t bis_dead = 0xe7c; // uint8 bDead;
+    constexpr uintptr_t current_states = 0x1058; // uint64 CurrentStates;
+    constexpr uintptr_t b_is_gun_ads = 0x1134;  // bool bIsGunADS;
 
     //-- class ASTExtraBaseCharacter : public ASTExtraCharacter
-    constexpr uintptr_t weapon_manager = 0x2588; // UCharacterWeaponManagerComponent* WeaponManagerComponent;
+    constexpr uintptr_t weapon_manager = 0x25b8; // UCharacterWeaponManagerComponent* WeaponManagerComponent;
 
     //-- class UWeaponManagerComponent : public UActorComponent
     constexpr uintptr_t current_weapon = 0x5c8; // ASTExtraWeapon* CurrentWeaponReplicated;
