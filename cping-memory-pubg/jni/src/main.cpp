@@ -1,5 +1,9 @@
 #include "main.h"
 
+namespace android::anative_window_creator::detail::compat {
+size_t SystemVersion = 0;
+}
+
 // Double-buffer system
 Structs::GameData game_buffers[2];
 std::atomic<int> write_buffer_index{0};
@@ -159,7 +163,7 @@ void aimbot_thread()
         android::ANativeWindowCreator::DisplayInfo display = android::ANativeWindowCreator::GetDisplayInfo();
         if (display.width < display.height)
             std::swap(display.width, display.height);
-        TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
+        TouchInput::setDisplayInfo(display.width, display.height, ((display.theta / 90) % 4 + 4) % 4);
 
         TouchInput::TouchRect aim_zone_fire = TouchInput::createZoneFromCenter(
             aim_zone_fire_x.load(), aim_zone_fire_y.load(), aim_zone_fire_radius.load());
@@ -345,7 +349,12 @@ void drawing_thread()
     android::ANativeWindowCreator::DisplayInfo display = android::ANativeWindowCreator::GetDisplayInfo();
     if (display.width < display.height)
         std::swap(display.width, display.height);
-    ANativeWindow *window = android::ANativeWindowCreator::Create("CPING", display.width, display.height, false);
+    ANativeWindow *window = android::ANativeWindowCreator::Create({
+        .name = "CPING",
+        .width = display.width,
+        .height = display.height,
+        .skipScreenshot = false,
+    });
     Renderer::Init(window, display.width, display.height);
 
     load_settings();
@@ -707,7 +716,7 @@ int main(int argc, char *argv[])
     aim_is_weapon_firing.store(false);
 
     TouchInput::touchInputStart();
-    TouchInput::setDisplayInfo(display.width, display.height, display.orientation);
+    TouchInput::setDisplayInfo(display.width, display.height, ((display.theta / 90) % 4 + 4) % 4);
 
     aimbot_thread_handle = std::thread(aimbot_thread);
     drawing_thread_handle = std::thread(drawing_thread);
