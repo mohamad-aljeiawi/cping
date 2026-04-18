@@ -353,6 +353,8 @@ using LayerMetadata__SetInt32 = void (*)(void *thiz, MetadataType key,
 using SurfaceComposerClient__Constructor = void *(*)(void *thiz);
 using SurfaceComposerClient__MirrorSurface =
     StrongPointer<void> (*)(void *thiz, void *mirrorFromSurface);
+using SurfaceComposerClient__MirrorSurfaceWithParent =
+    StrongPointer<void> (*)(void *thiz, void *mirrorFromSurface, void *parent);
 // Static
 using SurfaceComposerClient__GetInternalDisplayToken__Static =
     StrongPointer<void> (*)();
@@ -449,6 +451,7 @@ struct SurfaceComposerClient {
     void *Constructor;
     void *CreateSurface;
     void *MirrorSurface;
+    void *MirrorSurfaceWithParent;
     void *GetInternalDisplayToken;
     void *GetBuiltInDisplay;
     void *GetDisplayState;
@@ -752,6 +755,12 @@ template <ApiInvokeDescriptor descriptor> constexpr auto ApiInvoker() {
     return reinterpret_cast<
         types::apis::libgui::generic::SurfaceComposerClient__MirrorSurface>(
         apis::libgui::SurfaceComposerClient::Api.MirrorSurface);
+  }
+  if constexpr ("SurfaceComposerClient::MirrorSurfaceWithParent" ==
+                descriptor) {
+    return reinterpret_cast<types::apis::libgui::generic::
+                                SurfaceComposerClient__MirrorSurfaceWithParent>(
+        apis::libgui::SurfaceComposerClient::Api.MirrorSurfaceWithParent);
   }
 
   if constexpr ("SurfaceComposerClient::GetBuiltInDisplay" == descriptor) {
@@ -1139,14 +1148,6 @@ struct SurfaceComposerClient {
       return {};
     }
 
-    auto mirrorSurface =
-        ApiInvoker<"SurfaceComposerClient::MirrorSurface@v14">()(data,
-                                                                 surface.data);
-    if (nullptr == mirrorSurface.get()) {
-      LogError("[-] Failed to mirror surface: %u", layerStack);
-      return {};
-    }
-
     auto mirrorRootName = "MirrorRoot@" + std::to_string(layerStack);
     auto mirrorRootSurface =
         CreateSurface(mirrorRootName.data(), surface.width, surface.height,
@@ -1163,9 +1164,28 @@ struct SurfaceComposerClient {
     transaction.SetLayerStack(mirrorRootSurface, layerStack);
     transaction.Apply(false, true);
 
+    // Android 15+ changed mirrorSurface() to accept an explicit parent.
+    // The returned mirror is already attached to `parent`, so the legacy
+    // reparent transaction becomes unnecessary on those versions.
+    types::StrongPointer<void> mirrorSurface;
+    if (compat::SystemVersion >= 15) {
+      mirrorSurface =
+          ApiInvoker<"SurfaceComposerClient::MirrorSurfaceWithParent">()(
+              data, surface.data, mirrorRootSurface.data);
+    } else {
+      mirrorSurface = ApiInvoker<"SurfaceComposerClient::MirrorSurface@v14">()(
+          data, surface.data);
+    }
+    if (nullptr == mirrorSurface.get()) {
+      LogError("[-] Failed to mirror surface: %u", layerStack);
+      return {};
+    }
+
     transaction.SetLayerStack(mirrorSurface, layerStack);
     transaction.Show(mirrorSurface);
-    transaction.Reparent(mirrorSurface, mirrorRootSurface);
+    if (compat::SystemVersion < 15) {
+      transaction.Reparent(mirrorSurface, mirrorRootSurface);
+    }
     transaction.Apply(false, true);
 
     mirrorSurfaces.emplace_back(
@@ -1326,10 +1346,15 @@ struct ApiTableDescriptor {
                 "3gui13LayerMetadataEPj"},
 
             ApiDescriptor{
-                11, UINT_MAX,
+                11, 14,
                 &apis::libgui::SurfaceComposerClient::Api.MirrorSurface,
                 "_ZN7android21SurfaceComposerClient13mirrorSurfaceEPNS_"
                 "14SurfaceControlE"},
+            ApiDescriptor{
+                15, UINT_MAX,
+                &apis::libgui::SurfaceComposerClient::Api.MirrorSurfaceWithParent,
+                "_ZN7android21SurfaceComposerClient13mirrorSurfaceEPNS_"
+                "14SurfaceControlES2_"},
 
             ApiDescriptor{
                 5, 9,
