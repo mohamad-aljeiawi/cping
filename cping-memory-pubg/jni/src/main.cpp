@@ -553,36 +553,46 @@ void drawing_thread()
                 float text_scale_size = Utils::calculateTextSize(player.distance, 10.0f, 460.0f, 10.0f, 30.0f, 0.2f);
                 if (visual_box.load())
                 {
-                    Structs::FVector screen_pos = player.location;
-                    Structs::FVector bounds[8] = {player.bounds[0], player.bounds[1], player.bounds[2],
-                                                  player.bounds[3], player.bounds[4], player.bounds[5],
-                                                  player.bounds[6], player.bounds[7]};
-                    for (int j = 0; j < 4; ++j)
+                    // 3D bounding box: 8 corners stored in player.bounds[], ordered as:
+                    //   0..3 = bottom face (-Z), 4..7 = top face (+Z), matching corners in
+                    //   Ue4::process_object_bounds / the box-corner block in the entity loop.
+                    static const int box_edges[][2] = {
+                        {0, 1}, {1, 2}, {2, 3}, {3, 0}, // bottom rectangle
+                        {4, 5}, {5, 6}, {6, 7}, {7, 4}, // top rectangle
+                        {0, 4}, {1, 5}, {2, 6}, {3, 7}, // vertical pillars
+                    };
+
+                    float box_thickness = (player.distance < 60.0f) ? 2.2f
+                                        : (player.distance < 150.0f) ? 1.8f : 1.4f;
+
+                    for (const auto &edge : box_edges)
                     {
-                        Structs::FVector p1 = bounds[j];
-                        Structs::FVector p2 = bounds[(j + 1) % 4];
-                        draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
-                    }
-                    for (int j = 0; j < 4; ++j)
-                    {
-                        Structs::FVector p1 = bounds[j + 4];
-                        Structs::FVector p2 = bounds[((j + 1) % 4) + 4];
-                        draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
-                    }
-                    for (int j = 0; j < 4; ++j)
-                    {
-                        Structs::FVector p1 = bounds[j];
-                        Structs::FVector p2 = bounds[j + 4];
-                        draw_list->AddLine(ImVec2(p1.X, p1.Y), ImVec2(p2.X, p2.Y), color, 2.0f);
+                        const Structs::FVector &a = player.bounds[edge[0]];
+                        const Structs::FVector &b = player.bounds[edge[1]];
+                        // Z holds camera-forward depth from world_to_screen; skip edge if
+                        // either endpoint is behind the camera.
+                        if (a.Z <= 0.0f || b.Z <= 0.0f)
+                            continue;
+                        draw_list->AddLine(ImVec2(a.X, a.Y), ImVec2(b.X, b.Y), color, box_thickness);
                     }
                 }
 
                 if (visual_name.load())
                 {
+                    // player.root is the feet/ground-level screen point (derived from the
+                    // capsule bottom). Push the text a few pixels below it so it sits just
+                    // under the character rather than overlapping the box bottom.
+                    float text_anchor_y = player.root.Y + text_scale_size * 0.3f;
+
                     std::string display_text = std::to_string((int)player.distance) + "m";
                     Utils::add_text_center(draw_list, display_text, text_scale_size,
-                                           ImVec2(player.root.X, player.root.Y), text_color, true,
+                                           ImVec2(player.root.X, text_anchor_y), text_color, true,
                                            0.95f);
+
+                    std::string state_text = "state: " + std::to_string(player.current_states);
+                    Utils::add_text_center(draw_list, state_text, text_scale_size,
+                                           ImVec2(player.root.X, text_anchor_y + text_scale_size + 2.0f),
+                                           text_color, true, 0.95f);
                 }
                 if (visual_health.load())
                 {
@@ -802,6 +812,89 @@ int main(int argc, char *argv[])
                 continue;
 
             Structs::FTransform transform = Memory::Read<Structs::FTransform>(actor_root_component + Offset::component_to_world, target_pid);
+
+            // Pre-read the mesh pointer so we can sample its render-suppression flag below.
+            uintptr_t mesh_early = Memory::Read<uintptr_t>(actor + Offset::mesh, target_pid);
+            if (!mesh_early)
+                continue;
+
+            // --- In-vehicle world-position override (priority 1) ---
+            //
+            // ASTExtraCharacter::CurrentVehicle (+0xEB0) is the SDK-exposed pointer to
+            // the ASTExtraVehicleBase the pawn is riding in; nullptr when on foot.
+            // When set, BOTH the pawn's root AND mesh ComponentToWorld caches stop
+            // being written every tick because the engine's vehicle attach pipeline
+            // drives rendering straight from the seat socket. Result: both caches
+            // freeze at the vehicle-entry position, and every downstream field
+            // (distance, screen position, box, head) points back there.
+            //
+            // The vehicle itself is a plain AActor with its OWN RootComponent and a
+            // normally-ticked ComponentToWorld, so reading the vehicle's translation
+            // gives the actual current position the pawn is riding at. We snap the
+            // pawn to the vehicle position up-front and skip decoy detection for
+            // in-vehicle actors (they're not decoyable targets — AC doesn't teleport
+            // passengers, and "replicated_location" for an attached pawn is
+            // vehicle-relative, not world, so it would trigger false decoys).
+            uintptr_t current_vehicle = Memory::Read<uintptr_t>(actor + Offset::current_vehicle, target_pid);
+            bool is_in_vehicle = false;
+            if (current_vehicle)
+            {
+                uintptr_t vehicle_root = Memory::Read<uintptr_t>(current_vehicle + Offset::root_component, target_pid);
+                if (vehicle_root)
+                {
+                    // FTransform::Translation lives at +0x10 (16-byte FQuaternion precedes it).
+                    Structs::FVector vehicle_pos =
+                        Memory::Read<Structs::FVector>(vehicle_root + Offset::component_to_world + 0x10, target_pid);
+                    if (vehicle_pos.IsValid() && vehicle_pos.Length() > 1.0f)
+                    {
+                        transform.Translation = vehicle_pos;
+                        is_in_vehicle = true;
+                    }
+                }
+            }
+
+            // --- Teleportation-Decoy rejection (priority 2, on-foot only) ---
+            //
+            // Signal A (boolean / 100% deterministic):
+            //   On a decoy frame the engine flips render-suppression on the MESH component so the
+            //   ghost isn't visible to legit clients. The packed byte at USceneComponent+0x2dc
+            //   holds bHiddenInGame (bit0) and bVisible (bit1). Any of:
+            //       (bHiddenInGame == 1) || (bVisible == 0)
+            //   means this frame is a suppressed decoy, regardless of how small the spatial jump
+            //   is. This catches sub-threshold micro-decoys that a distance check alone misses.
+            //
+            // Signal B (magnitude):
+            //   AActor::ReplicatedMovement.Location (actor+0x128) is the server-authoritative
+            //   position the netcode itself consumes, so the anti-cheat cannot rewrite it
+            //   without breaking replication. A >5m disagreement with the component translation
+            //   means the component was just overwritten with a far decoy.
+            //
+            // If EITHER signal fires we trust the replicated location and shift every derived
+            // world position (mesh transform, bones, bounds) by the same correction vector.
+            if (!is_in_vehicle)
+            {
+                Structs::FVector replicated_location = Memory::Read<Structs::FVector>(actor + Offset::replicated_movement_location, target_pid);
+                uint8_t mesh_vis_byte = Memory::Read<uint8_t>(mesh_early + Offset::scene_visibility_byte, target_pid);
+                bool render_suppressed = ((mesh_vis_byte & 0x01) != 0) || ((mesh_vis_byte & 0x02) == 0);
+
+                bool has_replicated = (replicated_location.X != 0.0f || replicated_location.Y != 0.0f || replicated_location.Z != 0.0f);
+                if (has_replicated)
+                {
+                    float spoof_delta = (replicated_location - transform.Translation).Length();
+                    bool spoofed = render_suppressed || (spoof_delta > 500.0f);
+                    if (spoofed)
+                    {
+                        transform.Translation = replicated_location;
+                    }
+                }
+                else if (render_suppressed)
+                {
+                    // Mesh is suppressed but we have no replicated truth to snap to -> skip this
+                    // frame for this actor rather than render a decoy ghost.
+                    continue;
+                }
+            }
+
             float distance = (Structs::FVector::Distance(minimal_view_info.Location, transform.Translation) / 100.0f);
             if (distance > 400.0f || distance < 1.0f)
                 continue;
@@ -811,37 +904,118 @@ int main(int argc, char *argv[])
             Structs::FVector screen_pos = Ue4::world_to_screen(transform.Translation, minimal_view_info, display.width, display.height);
             bool is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin || screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
 
-            uintptr_t mesh = Memory::Read<uintptr_t>(actor + Offset::mesh, target_pid);
-            Structs::FBoxSphereBounds cached_local_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + Offset::cached_local_bounds, target_pid);
-            Structs::FTransform transform_bounds = Memory::Read<Structs::FTransform>(mesh + Offset::component_to_world, target_pid);
+            uintptr_t mesh = mesh_early;
+
+            // --- In-frustum micro-jitter kill ---
+            // Mesh->ComponentToWorld is written by the engine every frame while the actor is
+            // inside the camera frustum (animation/skinning pass). The anti-cheat injects
+            // sub-meter noise on that write, so reading this field directly always jitters.
+            // Reconstruct it from the already-corrected root transform + the mesh's STATIC
+            // relative transform, which is never perturbed at runtime.
+            Structs::FTransform transform_mech = Ue4::reconstruct_mesh_world_transform(mesh, transform, target_pid);
 
             uintptr_t character_movement = Memory::Read<uintptr_t>(actor + Offset::character_movement, target_pid);
             Structs::FVector target_velocity = Memory::Read<Structs::FVector>(character_movement + Offset::velocity, target_pid);
             Structs::FVector target_acceleration = Memory::Read<Structs::FVector>(character_movement + Offset::acceleration, target_pid);
 
-            // Fill player object 3D box corners
-            cached_local_bounds.BoxExtent.X *= 0.45f;
-            cached_local_bounds.BoxExtent.Y *= 0.45f;
-            cached_local_bounds.BoxExtent.Z *= 0.65f;
-            cached_local_bounds.Origin.Z -= cached_local_bounds.BoxExtent.Z * 0.0f;
+            // --- Capsule dimensions (authoritative character collider) ---
+            //
+            // UCapsuleComponent defines the character's real hitbox:
+            //   CapsuleHalfHeight = Z half-extent (head to feet / 2)
+            //   CapsuleRadius     = X,Y half-extent (body width / 2)
+            // Reading these directly produces a tight box that hugs the character.
+            // CachedLocalBounds, by contrast, is inflated to cover the animation envelope
+            // (arms swinging, weapon, dropped ragdoll volume) so it renders huge and loose.
+            float capsule_half_height_cm = 96.0f;
+            float capsule_radius_cm      = 40.0f;
+            uintptr_t capsule_component = Memory::Read<uintptr_t>(actor + Offset::capsule_component, target_pid);
+            if (capsule_component)
+            {
+                float h = Memory::Read<float>(capsule_component + Offset::capsule_half_height, target_pid);
+                if (h > 10.0f && h < 500.0f) capsule_half_height_cm = h;
+                float r = Memory::Read<float>(capsule_component + Offset::capsule_radius, target_pid);
+                if (r > 5.0f  && r < 200.0f) capsule_radius_cm = r;
+            }
 
-            Structs::FVector corners[8] = {
-                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z}};
+            // --- In-vehicle marker geometry correction ---
+            //
+            // When the pawn is riding a vehicle, transform.Translation was snapped to the
+            // vehicle's RootComponent translation above. That point is the vehicle's
+            // chassis-centre (between the wheels, ~30-50 cm off the ground), NOT the
+            // seat the pawn actually occupies. Rendering a full 192-cm standing box
+            // around it would:
+            //   - extend the box FEET to ~(chassis - 96cm) = below ground
+            //   - leave the box CENTER between the wheels instead of on the seat
+            //   - look "floating to the side" on small vehicles (tuk-tuk, bike) because
+            //     the chassis root is offset from where the rider visually sits
+            //
+            // Exact per-seat socket resolution would require walking
+            //   ASTExtraVehicleBase->VehicleSeats (UVehicleSeatComponent)
+            //       ->Seats[VehicleSeatIdx].SocketName -> Vehicle mesh socket transform
+            // whose layout isn't exposed in this SDK dump. So instead we render a
+            // deterministic "seated occupant" marker: a compact capsule whose FEET
+            // sit on the chassis plane and whose TOP reaches roughly head-of-seated-
+            // occupant height. This looks correct on every vehicle type because the
+            // occupant is always ~0-110 cm above the chassis root, regardless of seat.
+            if (is_in_vehicle)
+            {
+                capsule_half_height_cm *= 0.55f; // ~55 cm half-height = 110 cm seated box
+                capsule_radius_cm      *= 0.85f; // slightly narrower torso
+                // Lift the center up by one half-height so the box BOTTOM lands on the
+                // chassis plane (vehicle root) instead of extending below the ground.
+                transform.Translation.Z += capsule_half_height_cm;
+            }
 
-            Structs::FTransform transform_mech = Ue4::get_component_to_world(actor, target_pid);
-            Structs::FTransform bone_transform_head = Ue4::get_bone_transform(actor, 6, target_pid);
-            Structs::FTransform bone_transform_root = Ue4::get_bone_transform(actor, 0, target_pid);
-            Structs::FVector head_position = transform_mech.TransformPosition(bone_transform_head.Translation);
-            Structs::FVector root_position = transform_mech.TransformPosition(bone_transform_root.Translation);
+            // --- Head / feet anchors from the capsule, not from bone 6 ---
+            //
+            // get_bone_transform(actor, 6) reads at mesh+Offset::static_mesh (0x990),
+            // which in PUBG Mobile is the UStaticMesh* slot — not a bone array. For
+            // skeletal characters that pointer leads to unrelated memory, so the
+            // "head bone" position ends up floating several meters above the actor
+            // (which is why the health bar was drawn way up high).
+            //
+            // The capsule is an authoritative, anti-cheat-safe anchor:
+            //   top of capsule    = top of head        -> head_position  (health bar anchor)
+            //   bottom of capsule = ground under feet  -> feet_position  (text anchor)
+            //   ~0.85 up the spine ~ head centre       -> aim_head_point (aimbot target)
+            // Translation is already decoy-corrected by Patches 1 + 2 and never touched
+            // by the in-frustum jitter hook (that only hits Mesh->ComponentToWorld).
+            // Capsule top sits a few cm above the actual head crown (built-in clearance
+            // so the capsule doesn't clip ceilings). Pull down to 0.92 so head_location
+            // lands right on the crown of the head rather than above it.
+            Structs::FVector head_position = transform.Translation;
+            head_position.Z += capsule_half_height_cm * 0.98f;
             Structs::FVector head_location = Ue4::world_to_screen(head_position, minimal_view_info, display.width, display.height);
-            Structs::FVector root_location = Ue4::world_to_screen(root_position, minimal_view_info, display.width, display.height);
+
+            Structs::FVector feet_position = transform.Translation;
+            feet_position.Z -= capsule_half_height_cm;
+            Structs::FVector root_location = Ue4::world_to_screen(feet_position, minimal_view_info, display.width, display.height);
+
+            // Aimbot target: aim slightly below the crown (roughly head centre) so a
+            // landed shot counts as a headshot rather than grazing the top of the hat.
+            Structs::FVector aim_head_point = head_position;
+
+            // --- 3D bounding box corners (jitter-free, capsule-tight) ---
+            //
+            // Center = root translation (already decoy-corrected upstream). The root
+            // component is NOT touched by the on-screen micro-jitter hook, so building
+            // corners in world space directly from it needs neither transform_mech nor
+            // any relative-transform reconstruction here.
+            Structs::FVector center = transform.Translation;
+            Structs::FVector corners_world[8] = {
+                {center.X - capsule_radius_cm, center.Y - capsule_radius_cm, center.Z - capsule_half_height_cm},
+                {center.X + capsule_radius_cm, center.Y - capsule_radius_cm, center.Z - capsule_half_height_cm},
+                {center.X + capsule_radius_cm, center.Y + capsule_radius_cm, center.Z - capsule_half_height_cm},
+                {center.X - capsule_radius_cm, center.Y + capsule_radius_cm, center.Z - capsule_half_height_cm},
+                {center.X - capsule_radius_cm, center.Y - capsule_radius_cm, center.Z + capsule_half_height_cm},
+                {center.X + capsule_radius_cm, center.Y - capsule_radius_cm, center.Z + capsule_half_height_cm},
+                {center.X + capsule_radius_cm, center.Y + capsule_radius_cm, center.Z + capsule_half_height_cm},
+                {center.X - capsule_radius_cm, center.Y + capsule_radius_cm, center.Z + capsule_half_height_cm},
+            };
+
+            Structs::FVector bounds_screen[8];
+            for (int c = 0; c < 8; ++c)
+                bounds_screen[c] = Ue4::world_to_screen(corners_world[c], minimal_view_info, display.width, display.height);
 
             Structs::FVector aim_point = {0.0f, 0.0f, 0.0f};
             float cx = display.width / 2.0f;
@@ -855,7 +1029,7 @@ int main(int argc, char *argv[])
                 constexpr float DEG2RAD = 3.14159265f / 180.f; // conversion factor from degrees to radians
                 constexpr float G_CM = 980.f;                  // acceleration due to gravity in cm/s² in PUBG
 
-                Structs::FVector target_position = head_position;
+                Structs::FVector target_position = aim_head_point;
                 Structs::FVector shooter_position = minimal_view_info.Location;
                 float gravity_scale = gravity_scale_local;
                 float bullet_speed = bullet_speed_local;
@@ -922,13 +1096,8 @@ int main(int argc, char *argv[])
             }
 
             Structs::Player player_obj;
-            for (int i = 0; i < 8; ++i)
-            {
-                Structs::FVector local = corners[i] + cached_local_bounds.Origin;
-                Structs::FVector world = transform_bounds.TransformPosition(local);
-                Structs::FVector screen = Ue4::world_to_screen(world, minimal_view_info, display.width, display.height);
-                player_obj.bounds[i] = screen;
-            }
+            for (int c = 0; c < 8; ++c)
+                player_obj.bounds[c] = bounds_screen[c];
             player_obj.position = transform.Translation;
             player_obj.target = Ue4::world_to_screen(aim_point, minimal_view_info, display.width, display.height);
             player_obj.location = screen_pos;
@@ -939,6 +1108,7 @@ int main(int argc, char *argv[])
             player_obj.is_alive = is_alive;
             player_obj.is_bot = is_bot;
             player_obj.team_id = team_id;
+            player_obj.current_states = current_states;
             player_obj.is_on_screen = is_on_screen;
             if (current_buffer.count_enemies < 200)
             {
