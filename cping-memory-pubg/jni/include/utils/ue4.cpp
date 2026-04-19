@@ -229,69 +229,6 @@ namespace Ue4
         return {};
     }
 
-    // Canonical UE4 FRotator -> FQuaternion conversion (matches FRotator::Quaternion()).
-    Structs::FQuaternion quat_from_rotator(const Structs::FRotator &r)
-    {
-        constexpr float DEG_TO_RAD_HALF = (3.14159265358979323846f / 180.0f) * 0.5f;
-        float sp = sinf(r.Pitch * DEG_TO_RAD_HALF);
-        float cp = cosf(r.Pitch * DEG_TO_RAD_HALF);
-        float sy = sinf(r.Yaw   * DEG_TO_RAD_HALF);
-        float cy = cosf(r.Yaw   * DEG_TO_RAD_HALF);
-        float sr = sinf(r.Roll  * DEG_TO_RAD_HALF);
-        float cr = cosf(r.Roll  * DEG_TO_RAD_HALF);
-
-        Structs::FQuaternion q;
-        q.X =  cr * sp * sy - sr * cp * cy;
-        q.Y = -cr * sp * cy - sr * cp * sy;
-        q.Z =  cr * cp * sy - sr * sp * cy;
-        q.W =  cr * cp * cy + sr * sp * sy;
-        return q;
-    }
-
-    // --- In-frustum anti-jitter: reconstruct the mesh's world transform ---
-    //
-    // While an actor is inside the camera frustum the engine's UpdateComponentToWorld()
-    // runs every frame on the skeletal mesh for animation/skinning. The anti-cheat hooks
-    // that path and injects sub-meter translation/rotation noise directly into
-    // Mesh->ComponentToWorld, producing the on-screen box micro-jitter. The ROOT's
-    // ComponentToWorld is not touched (physics/replication depend on it) and the mesh's
-    // LOCAL (relative) transform is a class-level constant set at spawn that the engine
-    // cannot perturb at runtime without permanently breaking character animation.
-    //
-    // So instead of reading the spoofable Mesh->ComponentToWorld we rebuild it via:
-    //     MeshWorld = MeshRelative * RootWorld   (FTransform::Concatenate)
-    // using the already-corrected root transform passed in. Zero jitter, no filtering.
-    Structs::FTransform reconstruct_mesh_world_transform(uintptr_t mesh,
-                                                         const Structs::FTransform &root_world,
-                                                         pid_t process_pid)
-    {
-        Structs::FVector  rel_loc   = Memory::Read<Structs::FVector >(mesh + Offset::relative_location,  process_pid);
-        Structs::FRotator rel_rot   = Memory::Read<Structs::FRotator>(mesh + Offset::relative_rotation,  process_pid);
-        Structs::FVector  rel_scale = Memory::Read<Structs::FVector >(mesh + Offset::relative_scale3d,   process_pid);
-
-        // Sanity guard: if the relative fields look corrupted, fall back to the raw read
-        // so we don't produce a worse result than Patch 2 did.
-        bool rel_sane =
-            rel_loc.IsValid()   && rel_loc.Length() < 2000.0f &&
-            rel_scale.IsValid() &&
-            std::fabs(rel_scale.X) > 0.01f && std::fabs(rel_scale.X) < 100.0f &&
-            std::fabs(rel_scale.Y) > 0.01f && std::fabs(rel_scale.Y) < 100.0f &&
-            std::fabs(rel_scale.Z) > 0.01f && std::fabs(rel_scale.Z) < 100.0f;
-
-        if (!rel_sane)
-        {
-            return Memory::Read<Structs::FTransform>(mesh + Offset::component_to_world, process_pid);
-        }
-
-        Structs::FTransform mesh_relative;
-        mesh_relative.Translation = rel_loc;
-        mesh_relative.Rotation    = quat_from_rotator(rel_rot);
-        mesh_relative.Scale3D     = rel_scale;
-
-        // child.Concatenate(parent) = parent * child
-        return mesh_relative.Concatenate(root_world);
-    }
-
     // Unified function to process object bounds and create 3D boxes
     bool process_object_bounds(uintptr_t actor,
                                const std::vector<uintptr_t> &component_offsets,

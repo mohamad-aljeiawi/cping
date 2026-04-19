@@ -31,14 +31,30 @@ namespace Offset
 
     //-- class AActor : public UObject
     constexpr uintptr_t root_component = 0x208; // USceneComponent* RootComponent;
-    constexpr uintptr_t replicated_movement = 0x110; // FRepMovement ReplicatedMovement; (Location at +0x18)
-    constexpr uintptr_t replicated_movement_location = replicated_movement + 0x18; // FVector (0x128)
+    // FRepMovement ReplicatedMovement lives at 0x110; its FVector Location is at +0x18.
+    // This field is server-authoritative and consumed by the netcode, so the anti-cheat
+    // cannot rewrite it without breaking replication — used as the ground-truth reference
+    // for filtering decoy/teleport spoofs written into RootComponent->ComponentToWorld.
+    constexpr uintptr_t replicated_movement_location = 0x110 + 0x18; // = 0x128
 
-    //-- class USceneComponent (mesh inherits) – render-suppression discriminators
-    constexpr uintptr_t scene_visibility_byte = 0x2dc; // bHiddenInGame (bit0) | bVisible (bit1)
-    constexpr uintptr_t relative_location = 0x1e4;     // FVector USceneComponent::RelativeLocation
-    constexpr uintptr_t relative_rotation = 0x1f0;     // FRotator USceneComponent::RelativeRotation
-    constexpr uintptr_t relative_scale3d  = 0x1fc;     // FVector USceneComponent::RelativeScale3D
+    //-- ACharacter::ReplicatedBasedMovement (FBasedMovementInfo) — vehicle-aware.
+    // When MovementBase is non-null (e.g., riding a vehicle/platform), Location is
+    // stored RELATIVE to that base's attach socket, so reading it directly would be
+    // wrong unless composed with the base's world transform.
+    constexpr uintptr_t based_movement = 0x558;                              // FBasedMovementInfo ReplicatedBasedMovement
+    constexpr uintptr_t based_movement_base = based_movement + 0x0;          // UPrimitiveComponent* MovementBase
+    constexpr uintptr_t based_movement_location = based_movement + 0x14;     // FVector_NetQuantize100 Location
+
+    //-- ASTExtraCharacter::CurrentVehicle — non-null when the pawn is riding.
+    // The vehicle is a plain AActor whose own RootComponent ticks normally and whose
+    // ComponentToWorld is a reliable world position even when the pawn's is frozen.
+    constexpr uintptr_t current_vehicle = 0xeb0;
+
+    //-- UCharacterMovementComponent::LastUpdateLocation (CMC + 0x314)
+    // Written every physics tick as the reference point for the next move delta, so
+    // it updates at game-tick rate (no network-tick lag) and the engine itself depends
+    // on it — spoofing would break client prediction.
+    constexpr uintptr_t last_update_location = 0x314;
 
     //-- class APlayerController : public AController
     constexpr uintptr_t acknowledged_pawn = 0x528; // APawn* AcknowledgedPawn;
@@ -80,7 +96,6 @@ namespace Offset
     //-- class ASTExtraCharacter : public AUAECharacter
     constexpr uintptr_t health = 0xe60; // float Health;
     constexpr uintptr_t bis_dead = 0xe7c; // uint8 bDead;
-    constexpr uintptr_t current_vehicle = 0xeb0; // ASTExtraVehicleBase* CurrentVehicle;
     constexpr uintptr_t current_states = 0x1058; // uint64 CurrentStates;
     constexpr uintptr_t b_is_gun_ads = 0x1134;  // bool bIsGunADS;
 

@@ -641,14 +641,10 @@ namespace Structs
         int team_id;
         int camp_id;
         int weapon_id;
-        int current_states;
         char name[256];
         char state[256];
-        // Screen-space corners of the character's 3D AABB. Order matches the box-corner
-        // expansion in the entity loop: 0..3 = bottom face, 4..7 = top face (same Z ordering
-        // as Ue4::process_object_bounds). .Z holds camera-forward depth; negative => behind
-        // camera, skip that edge.
         FVector bounds[8];
+        FVector bones[13];
         bool is_bot;
         bool is_alive;
         bool is_on_screen;

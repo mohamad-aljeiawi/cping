@@ -19,10 +19,6 @@ namespace Ue4
     Structs::FVector world_to_screen(Structs::FVector worldLocation, Structs::MinimalViewInfo camViewInfo, int screenWidth, int screenHeight);
     Structs::FTransform get_component_to_world(uintptr_t entity, pid_t process_pid);
     Structs::FTransform get_bone_transform(uintptr_t entity, int idx, pid_t process_pid);
-    Structs::FQuaternion quat_from_rotator(const Structs::FRotator &r);
-    Structs::FTransform reconstruct_mesh_world_transform(uintptr_t mesh,
-                                                         const Structs::FTransform &root_world,
-                                                         pid_t process_pid);
     bool process_object_bounds(uintptr_t actor,
                                const std::vector<uintptr_t> &component_offsets,
                                const std::vector<uintptr_t> &mesh_offsets,
