@@ -1,8 +1,40 @@
 [SIZE=6][B]Teleport-Decoy Filter — Design Document[/B][/SIZE]
 
+[COLOR=red][B]NOTE:[/B] This article was written by my friend to solve this problem. You can view the complete open-source code for this solution.[/COLOR]
+
+[B]GitHub:[/B] [URL]https://github.com/mohamad-aljeiawi/cping/tree/main/cping-memory-pubg[/URL]
+
+[SIZE=5][B]0. Read this first (plain-English overview)[/B][/SIZE]
+
+If you are new to memory cheats, here is the short version of what this document is about.
+
+A game like PUBG keeps every player's position in memory. A cheat reads those positions and draws boxes, names, and aim markers on top of the screen. To fight this, the anti-cheat (AC) regularly [B]writes fake positions[/B] on top of the real ones for a single frame, then lets the real value come back. A naive cheat reads the fake value, so the box suddenly teleports hundreds of meters away and then snaps back. This is what players call a [B]"decoy"[/B] or [B]"teleport decoy."[/B]
+
+The goal of this document is to describe a [B]filter[/B] that:
+[LIST=1]
+[*]Recognizes a corrupted (decoy) frame when it happens.
+[*]Throws that frame away.
+[*]Reuses the last good, verified data, so the visuals stay calm and the aim keeps working.
+[/LIST]
+
+The approach is simple in spirit: on every good frame, take a full [B]snapshot[/B] of everything we need about a player. On a bad frame, [B]replay the last snapshot[/B] instead of using the bad data. The rest of the document explains how to tell a good frame from a bad one, which memory to read, and why.
+
+Throughout this text:
+[LIST]
+[*][B]actor[/B] = an in-game object (a player pawn, a vehicle, etc.).
+[*][B]pawn[/B] = the character object that represents a player in the world.
+[*][B]offset[/B] = a fixed number of bytes from the start of an object to one of its fields.
+[*][B]XY[/B] = horizontal plane. [B]Z[/B] = vertical axis (height).
+[*][B]CTW[/B] = ComponentToWorld, a transform (position + rotation + scale) in world space.
+[*][B]CMC[/B] = CharacterMovementComponent (Unreal's movement component).
+[*][B]REP[/B] = replicated, i.e. sent over the network from the server.
+[/LIST]
+
 [SIZE=5][B]1. Problem[/B][/SIZE]
 
 The anti-cheat corrupts enemy pawn data in memory to produce false positions for cheats that render from those values. On screen this appears as player boxes, name tags, and aim anchors jumping to wrong positions. The filter must detect corrupt frames and suppress them without altering clean-frame behavior.
+
+[I]In other words:[/I] the AC does not ban you, it lies to you. It changes a couple of numbers in RAM for one frame so that whatever reads those numbers draws garbage. Our job is to notice the lie, ignore that frame, and keep using the last truthful numbers we saw.
 
 [SIZE=5][B]2. Attack surfaces[/B][/SIZE]
 
@@ -18,13 +50,26 @@ The AC attacks [B]three independent memory regions[/B] on each pawn:
 +-----------------------+------------------------------+-----------------------------+----------------------------+
 [/CODE]
 
+[B]How to read this table:[/B]
+[LIST]
+[*][B]Root ComponentToWorld[/B] is the pawn's root transform. This is the big, loud decoy: the player gets teleported 150-250 meters away on XY. It happens all the time, for every enemy the cheat knows about.
+[*][B]Mesh ComponentToWorld[/B] is the transform of the character's skinned mesh. It is only touched when the pawn is on screen (the AC hooks the renderer's UpdateComponentToWorld / UCTW). The shift is small, maybe a few meters, and its job is to desync the box/corners from the root.
+[*][B]Bone array[/B] is the list of per-bone transforms inside the mesh. When the mesh itself is spoofed, bones drift a little too. This breaks head/feet anchors that cheats compute from bones.
+[/LIST]
+
 All three preserve Z. Only X and Y are modified. The AC does [B]not[/B] touch [B]FRepMovement.Location[/B], [B]CharacterMovement->LastUpdateLocation[/B], or the [B]CurrentVehicle[/B] actor's own root — these feed netcode and client prediction, so corrupting them would break the game for legit clients.
 
+[I]Why does this matter?[/I] It gives us [B]honest mirrors[/B]. If the AC tampered with the replicated location or the movement component, every legitimate player's game would rubber-band. The AC can't afford that. So we always have at least one clean reference we can compare the suspicious value against.
+
 Pattern is transient: corrupt frames interleave with clean frames at ~1 Hz per attacked actor. Clean frames dominate.
+
+[I]Translation:[/I] roughly once per second per visible enemy, you get one bad frame surrounded by many good frames. That is exactly why a "remember the last good frame" strategy works so well.
 
 [SIZE=5][B]3. Location-like fields in the SDK[/B][/SIZE]
 
 Class chain for enemy pawns: [B]AActor -> APawn -> ACharacter -> AUAECharacter -> ASTExtraCharacter[/B].
+
+[I]Reminder:[/I] each class in this chain inherits the fields of its parent, so an ASTExtraCharacter has all fields of AActor, APawn, ACharacter, and AUAECharacter too. The offsets below are relative to the start of the actor object.
 
 [CODE]
 +---------------------------------+---------------------------------+---------+----------------+---------------------------+
@@ -37,6 +82,21 @@ Class chain for enemy pawns: [B]AActor -> APawn -> ACharacter -> AUAECharacter -
 | ReplicatedBasedMovement         | actor+0x56c                     |  0x56c  | network tick   | unreliable, drop          |
 +---------------------------------+---------------------------------+---------+----------------+---------------------------+
 [/CODE]
+
+[B]How to read the "Access" column:[/B] each arrow ([B]->[/B]) means "follow the pointer". For example, [I]actor+0x208 -> +0x210 + 0x10[/I] means: read a pointer at [I]actor+0x208[/I] (root component), then go [I]0x210[/I] bytes into that object (ComponentToWorld), then [I]0x10[/I] bytes further (Translation inside FTransform).
+
+[B]Update rate:[/B]
+[LIST]
+[*][B]physics tick[/B] — updated every frame by the engine. Current.
+[*][B]network tick[/B] — updated only when a packet arrives from the server. A little behind.
+[/LIST]
+
+[B]Trust:[/B]
+[LIST]
+[*][B]spoofed[/B] — the AC writes over it. Never trust directly.
+[*][B]clean[/B] — the AC does not touch it. Good reference.
+[*][B]unreliable[/B] — we simply don't use it; keep it in the table so readers know we considered it.
+[/LIST]
 
 Struct layouts (from [B]Structs.hpp[/B]):
 
@@ -52,7 +112,11 @@ FBasedMovementInfo (0x30)
     0x14  FVector_NetQuantize100  Location
 [/CODE]
 
+So when the table says [I]actor+0x128[/I] for FRepMovement.Location, it actually means "FRepMovement struct starts at 0x110 and Location is at +0x18 inside it" (0x110 + 0x18 = 0x128). We skip directly to the final field.
+
 [SIZE=5][B]4. Reference comparison[/B][/SIZE]
+
+We need a [B]reference value[/B] — something we trust — to compare the suspicious root translation against. Three candidates are realistic: [B]LUL[/B], [B]VEH[/B], and [B]REP[/B]. Here is how they behave.
 
 Measured against [B]raw[/B] (root translation):
 
@@ -66,9 +130,22 @@ Measured against [B]raw[/B] (root translation):
 +-----------+------------------------+-----------------------+----------------------+-------------+--------------------+
 [/CODE]
 
+[B]What the columns mean:[/B]
+[LIST]
+[*][B]Clean-frame gap[/B] — how far the reference normally is from the real root on a good frame. Smaller is better.
+[*][B]On decoy frame[/B] — what happens to the reference when the root is spoofed.
+[*][B]In vehicle[/B] — special case: when a player is inside a car, the character's own transforms freeze at the seat position. Only the vehicle actor keeps moving.
+[*][B]Lag[/B] — how far behind the reference can be. REP lags because it only updates on network ticks.
+[*][B]Reads[/B] — how expensive the reference is. One extra FVector read is trivial; chasing multiple pointers costs more.
+[/LIST]
+
 [B]Selection:[/B] VEH when in vehicle, else LUL, else REP as last-resort fallback.
 
+[I]Why this order?[/I] On foot, [B]LUL[/B] matches the root almost exactly every frame — it is the best possible anchor. In a vehicle, LUL freezes at the seat so it becomes useless for motion; the vehicle actor's own root is clean (the AC does not spoof vehicle roots) and it tracks the driver live. REP is the last fallback because it is always correct but slightly out of date.
+
 [SIZE=5][B]5. Why direct snap-on-detect is insufficient[/B][/SIZE]
+
+[I]Direct snap-on-detect[/I] means: "if the root looks bad this frame, just overwrite it with the reference value and keep the rest." That sounds simpler than building a snapshot system. It does not work. Here is why.
 
 [B]player_obj[/B] is built from multiple independent world reads:
 
@@ -83,11 +160,26 @@ corners_world[8]  = transform_bounds * local corners
 
 Patching only [B]transform.Translation[/B] leaves mesh-derived fields (corners, head, root) coming from an independent surface the AC also attacks. Result: mixed-source visual artifacts — box in one place, name tag in another.
 
+[I]Concretely:[/I] you would fix the root translation, but the mesh CTW and the bones were also tampered with (or read at a slightly different instant). The bounding box corners come from the mesh, the head anchor comes from a bone, and the root label comes from the root. They would not agree with each other on screen. Any fix therefore has to treat [B]all[/B] the world reads for one player as a single atomic set — that is what the snapshot does.
+
 [SIZE=5][B]6. Solution — snapshot retention with three validation gates[/B][/SIZE]
+
+The idea in one sentence: [B]take a full, consistent copy of every world-space value we need from each player on every clean frame; on a dirty frame, replay the last copy.[/B]
+
+We accept or reject a frame using [B]three gates[/B] — three cheap sanity checks, each comparing a suspicious value against a reference:
+[LIST=1]
+[*][B]Gate 1: root vs reference.[/B] Is the root translation within 3 m of LUL/VEH/REP?
+[*][B]Gate 2: mesh vs root.[/B] Is the mesh transform within 0.5 m of the root?
+[*][B]Gate 3: bones vs root.[/B] Are the head and feet bones within 1.5 m of the root?
+[/LIST]
+
+If all three pass, the frame is clean and we save a new snapshot. If any fails, we skip the reads we have not done yet and reuse the previous snapshot.
 
 Keep the full world-space read-set from the most recent clean frame. On any corrupt frame, replay the whole snapshot. Every rendered field stays from the same validated moment.
 
 [SIZE=4][B]6.1 Per-frame algorithm[/B][/SIZE]
+
+Pseudocode below. Read the comments; the structure is: gate 1 -> more reads -> gate 2 -> more reads -> gate 3 -> store snapshot; then always project the snapshot to screen.
 
 [CODE]
 for each actor:
@@ -150,6 +242,12 @@ for each actor:
     # Aimbot consumes snapshot.head_position / velocity / acceleration
 [/CODE]
 
+[I]Two small but important details:[/I]
+[LIST]
+[*]We [B]project to screen at the end[/B] using the [I]current[/I] camera, even when replaying an old snapshot. Screen coordinates depend on where the camera is right now, so storing them would instantly desync when the camera rotates.
+[*]Gate 2 must be done [B]before[/B] we use [I]transform_mesh[/I] for bones and corners. Reading it once and reusing it avoids a race where the AC could spoof between two reads of the same field.
+[/LIST]
+
 [SIZE=4][B]6.2 Snapshot contents[/B][/SIZE]
 
 Only world-space. [B]Never store screen-space[/B] — it depends on the current camera.
@@ -165,6 +263,8 @@ struct ActorSnapshot {
 };                                  // ~156 B per actor (~15 KB for 100 actors)
 [/PHP]
 
+[I]Budget check:[/I] about 156 bytes per tracked enemy. A full match has at most ~100 actors in view at once, so ~15 KB total. This is effectively free.
+
 [SIZE=4][B]6.3 Storage options[/B][/SIZE]
 
 Logic is identical across these; only the lookup primitive changes.
@@ -173,6 +273,8 @@ Logic is identical across these; only the lookup primitive changes.
 [*][B]Flat array + linear scan[/B] — O(N), N <= 100, cache-friendly.
 [*][B]Previous frame's output buffer[/B] — add actor_ptr to Structs::Player, linear-scan the previous game_buffers. No new structure.
 [/LIST]
+
+[I]Recommendation for beginners:[/I] pick option 2 or 3. With only ~100 actors, a flat array is just as fast as a hash map and does not allocate. Option 3 is the cleanest if you already double-buffer your player list.
 
 [SIZE=4][B]6.4 Edge cases[/B][/SIZE]
 
@@ -187,6 +289,8 @@ Logic is identical across these; only the lookup primitive changes.
 +----------------------------------------+------------------------------------+-----------------------------------------+
 [/CODE]
 
+A few words on the last row: some on-screen objects are not full ACharacter instances (pickups with health bars, decorative NPCs, etc.). They have no CMC and no replicated movement. For those, the only readable position is the root, and the AC does not spoof them anyway, so we accept the raw value.
+
 [SIZE=4][B]6.5 Thresholds[/B][/SIZE]
 
 [CODE]
@@ -199,6 +303,8 @@ Logic is identical across these; only the lookup primitive changes.
 +--------------------------------+-----------+------------------+-----------------------------------------------------+
 [/CODE]
 
+[I]Why these numbers?[/I] Unreal uses centimeters. The worst natural gap between the root and any legitimate reference is around 50 cm (network jitter, tick interpolation). The smallest decoy observed is around 150 m = 15 000 cm. A 300 cm threshold sits comfortably between the two: six times larger than noise, fifty times smaller than the smallest attack. The same logic applies to the other two gates.
+
 [SIZE=5][B]7. Advantages[/B][/SIZE]
 
 [LIST=1]
@@ -209,6 +315,8 @@ Logic is identical across these; only the lookup primitive changes.
 [*][B]Zero overhead on clean frames[/B] — only added cost is LUL/VEH/REP reads (cheap).
 [/LIST]
 
+[I]Plain words:[/I] good frames cost almost nothing extra, bad frames actually cost [B]less[/B] than today because we bail out early, and the picture on screen never jumps again.
+
 [SIZE=5][B]8. Drawbacks[/B][/SIZE]
 
 [LIST=1]
@@ -217,7 +325,16 @@ Logic is identical across these; only the lookup primitive changes.
 [*][B]Unbounded growth if actors leave without hitting all-zeros[/B] — bounded by match size (~100); add TTL if needed.
 [/LIST]
 
+[I]Mitigations:[/I]
+[LIST]
+[*]If you ever see staleness in the wild, add a [B]max-age[/B] counter in the snapshot and drop it after N ticks of failed gates.
+[*]The bootstrap gap is cosmetic — one missed render on first enemy appearance, no gameplay impact.
+[*]For memory, a 2-second TTL on untouched entries caps the map even if an actor leaves the world in an unusual way.
+[/LIST]
+
 [SIZE=5][B]9. Offsets required[/B][/SIZE]
+
+These are the final constants you need. Verify them against your own SDK dump; layouts change between PUBG versions.
 
 [PHP]
 namespace Offset {
@@ -246,25 +363,3 @@ namespace Offset {
     constexpr uintptr_t current_vehicle              = 0xeb0;
 }
 [/PHP]
-
-[SIZE=5][B]10. Implementation checklist[/B][/SIZE]
-
-[LIST]
-[*]Define [B]struct ActorSnapshot[/B] (top of main.cpp or in structs.h).
-[*]Declare the store [B]static[/B] inside the scanning function (container per 6.3).
-[*]After reading [B]transform[/B], read LUL / VEH / REP.
-[*]All-zeros erase rule.
-[*][B]Gate 1[/B] — root vs reference (300 cm).
-[*][B]Gate 2[/B] — transform_bounds.Translation vs raw (50 cm).
-[*]Reuse transform_bounds as transform_mech (do not re-read mesh CTW).
-[*][B]Gate 3[/B] — computed head_position and root_position vs raw (150 cm each).
-[*]Store the snapshot only when all three gates pass; otherwise fall through to cached.
-[*]Downstream consumes snapshot world values; world_to_screen runs every frame with current camera.
-[/LIST]
-
-[SIZE=5][B]11. Out of scope[/B][/SIZE]
-
-[LIST]
-[*][B]Ghost actors[/B] — separate decoy actor instances in the UWorld list with their own valid LUL/VEH. This filter cannot distinguish them; requires a render-suppression or proximity-dedupe detector.
-[*][B]Bone index 6 resolving to UStaticMesh* on some PUBG Mobile builds[/B] — affects head-anchor accuracy for health bars; independent of decoy filtering.
-[/LIST]
