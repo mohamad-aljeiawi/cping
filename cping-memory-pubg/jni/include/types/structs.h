@@ -629,6 +629,21 @@ namespace Structs
         ImVec2 enemy_label_pos;
     };
 
+    // Per-actor snapshot of world-space reads captured on the most recent
+    // clean frame. On spoof frames (when the AC overwrites root translation
+    // with a decoy vector 150-250m away), the scanning loop reuses this
+    // whole snapshot instead of patching individual fields — keeps every
+    // field in the downstream Player object internally consistent.
+    struct ActorSnapshot
+    {
+        FVector translation;
+        FVector world_corners[8];
+        FVector head_position;
+        FVector root_position;
+        FVector target_velocity;
+        FVector target_acceleration;
+    };
+
     struct Player
     {
         FVector position;

@@ -722,10 +722,6 @@ int main(int argc, char *argv[])
     drawing_thread_handle = std::thread(drawing_thread);
 
     float margin = 20.0f; // Margin around the screen area
-    // actor_ptr -> ActorSnapshot retained across frames. On a decoy frame
-    // (root translation spoofed >= 300 cm away from LUL/VEH), we replay the
-    // most recent clean entry whole instead of rendering corrupt mesh reads.
-    std::unordered_map<uintptr_t, Structs::ActorSnapshot> actor_snapshots;
     while (is_running.load(std::memory_order_relaxed))
     {
         Utils::control_frame_rate(frame_rate.load(std::memory_order_relaxed));
@@ -806,174 +802,46 @@ int main(int argc, char *argv[])
                 continue;
 
             Structs::FTransform transform = Memory::Read<Structs::FTransform>(actor_root_component + Offset::component_to_world, target_pid);
-            Structs::FVector raw = transform.Translation;
-
-            // Reference reads — fields the anti-cheat does not spoof.
-            uintptr_t character_movement = Memory::Read<uintptr_t>(actor + Offset::character_movement, target_pid);
-            Structs::FVector lul = character_movement
-                                       ? Memory::Read<Structs::FVector>(character_movement + Offset::last_update_location, target_pid)
-                                       : Structs::FVector{};
-
-            Structs::FVector veh{};
-            bool in_vehicle = false;
-            uintptr_t vehicle_actor = Memory::Read<uintptr_t>(actor + Offset::current_vehicle, target_pid);
-            if (vehicle_actor)
-            {
-                uintptr_t vehicle_root = Memory::Read<uintptr_t>(vehicle_actor + Offset::root_component, target_pid);
-                if (vehicle_root)
-                {
-                    veh = Memory::Read<Structs::FTransform>(vehicle_root + Offset::component_to_world, target_pid).Translation;
-                    in_vehicle = true;
-                }
-            }
-
-            Structs::FVector rep = Memory::Read<Structs::FVector>(actor + Offset::replicated_movement_location, target_pid);
-
-            auto is_zero = [](const Structs::FVector &v)
-            { return v.X == 0.0f && v.Y == 0.0f && v.Z == 0.0f; };
-
-            // Pawn gone from the world — all world reads zeroed.
-            if (is_zero(raw) && is_zero(veh) && is_zero(lul))
-            {
-                actor_snapshots.erase(actor);
-                continue;
-            }
-
-            // Preference: vehicle actor while riding, else LUL (physics tick, no lag),
-            // else REP (network tick, ~50-150 ms lagged) as last-resort fallback.
-            bool has_reference = false;
-            Structs::FVector reference;
-            if (in_vehicle && !is_zero(veh))
-            {
-                reference = veh;
-                has_reference = true;
-            }
-            else if (!is_zero(lul))
-            {
-                reference = lul;
-                has_reference = true;
-            }
-            else if (!is_zero(rep))
-            {
-                reference = rep;
-                has_reference = true;
-            }
-
-            // XY-only gap (Z is never spoofed). 300 cm sits >6x over the worst
-            // clean-frame gap and <1/50 of the smallest observed decoy magnitude.
-            constexpr float kDecoyXYThresholdSq = 300.0f * 300.0f;
-            bool is_clean = true;
-            if (has_reference)
-            {
-                float dxr = raw.X - reference.X;
-                float dyr = raw.Y - reference.Y;
-                is_clean = (dxr * dxr + dyr * dyr) <= kDecoyXYThresholdSq;
-            }
-
-            Structs::ActorSnapshot active;
-            bool snapshot_valid = false;
-            if (is_clean)
-            {
-                uintptr_t mesh = Memory::Read<uintptr_t>(actor + Offset::mesh, target_pid);
-                Structs::FBoxSphereBounds cached_local_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + Offset::cached_local_bounds, target_pid);
-                Structs::FTransform transform_bounds = Memory::Read<Structs::FTransform>(mesh + Offset::component_to_world, target_pid);
-
-                // Mesh ComponentToWorld is an independent memory location from the root
-                // ComponentToWorld we already validated; the AC hooks UpdateComponentToWorld
-                // on on-screen meshes and can shift mesh.Translation on its own. Legit mesh
-                // sits within ~10 cm of the capsule root, so a 50 cm XY gap already signals
-                // tampering.
-                constexpr float kMeshRootThresholdSq = 50.0f * 50.0f;
-                float mdx = transform_bounds.Translation.X - raw.X;
-                float mdy = transform_bounds.Translation.Y - raw.Y;
-                bool mesh_spoofed = (mdx * mdx + mdy * mdy) > kMeshRootThresholdSq;
-
-                if (!mesh_spoofed)
-                {
-                    // Reuse transform_bounds as the mesh-world transform. get_component_to_world
-                    // would re-read the exact same memory (mesh + component_to_world), and
-                    // two separate reads open a race window the AC can write through between
-                    // them, producing corners and bones from different snapshots.
-                    const Structs::FTransform &transform_mech = transform_bounds;
-                    Structs::FTransform bone_transform_head = Ue4::get_bone_transform(actor, 6, target_pid);
-                    Structs::FTransform bone_transform_root = Ue4::get_bone_transform(actor, 0, target_pid);
-
-                    Structs::FVector tentative_head = transform_mech.TransformPosition(bone_transform_head.Translation);
-                    Structs::FVector tentative_root = transform_mech.TransformPosition(bone_transform_root.Translation);
-
-                    // Bone array (mesh + 0x990) is yet another separate memory region; even
-                    // with a clean mesh transform, corrupt bone entries produce head/root
-                    // world positions that drift off the capsule. Head and feet must stay
-                    // inside a vertical cylinder around the pawn — 150 cm XY is well beyond
-                    // a human torso width and below any spoof magnitude.
-                    constexpr float kAnchorXYMaxSq = 150.0f * 150.0f;
-                    float hdx = tentative_head.X - raw.X;
-                    float hdy = tentative_head.Y - raw.Y;
-                    float rdx = tentative_root.X - raw.X;
-                    float rdy = tentative_root.Y - raw.Y;
-                    bool anchors_spoofed = (hdx * hdx + hdy * hdy) > kAnchorXYMaxSq ||
-                                           (rdx * rdx + rdy * rdy) > kAnchorXYMaxSq;
-
-                    if (!anchors_spoofed)
-                    {
-                        Structs::FVector target_velocity = character_movement
-                                                               ? Memory::Read<Structs::FVector>(character_movement + Offset::velocity, target_pid)
-                                                               : Structs::FVector{};
-                        Structs::FVector target_acceleration = character_movement
-                                                                   ? Memory::Read<Structs::FVector>(character_movement + Offset::acceleration, target_pid)
-                                                                   : Structs::FVector{};
-
-                        cached_local_bounds.BoxExtent.X *= 0.45f;
-                        cached_local_bounds.BoxExtent.Y *= 0.45f;
-                        cached_local_bounds.BoxExtent.Z *= 0.65f;
-                        cached_local_bounds.Origin.Z -= cached_local_bounds.BoxExtent.Z * 0.0f;
-
-                        Structs::FVector corners[8] = {
-                            {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                            {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                            {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                            {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
-                            {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                            {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                            {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
-                            {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z}};
-
-                        active.translation = raw;
-                        active.head_position = tentative_head;
-                        active.root_position = tentative_root;
-                        active.target_velocity = target_velocity;
-                        active.target_acceleration = target_acceleration;
-                        for (int c = 0; c < 8; ++c)
-                        {
-                            Structs::FVector local = corners[c] + cached_local_bounds.Origin;
-                            active.world_corners[c] = transform_bounds.TransformPosition(local);
-                        }
-
-                        actor_snapshots[actor] = active;
-                        snapshot_valid = true;
-                    }
-                }
-            }
-
-            if (!snapshot_valid)
-            {
-                auto it = actor_snapshots.find(actor);
-                if (it == actor_snapshots.end())
-                    continue;
-                active = it->second;
-            }
-
-            float distance = (Structs::FVector::Distance(minimal_view_info.Location, active.translation) / 100.0f);
+            float distance = (Structs::FVector::Distance(minimal_view_info.Location, transform.Translation) / 100.0f);
             if (distance > 400.0f || distance < 1.0f)
                 continue;
 
             bool is_bot = Memory::Read<bool>(actor + Offset::bis_ai, target_pid);
 
-            Structs::FVector screen_pos = Ue4::world_to_screen(active.translation, minimal_view_info, display.width, display.height);
+            Structs::FVector screen_pos = Ue4::world_to_screen(transform.Translation, minimal_view_info, display.width, display.height);
             bool is_on_screen = !(screen_pos.X < margin || screen_pos.Y < margin || screen_pos.X > display.width - margin || screen_pos.Y > display.height - margin || screen_pos.Z < 0.0f);
 
-            Structs::FVector head_location = Ue4::world_to_screen(active.head_position, minimal_view_info, display.width, display.height);
-            Structs::FVector root_location = Ue4::world_to_screen(active.root_position, minimal_view_info, display.width, display.height);
+            uintptr_t mesh = Memory::Read<uintptr_t>(actor + Offset::mesh, target_pid);
+            Structs::FBoxSphereBounds cached_local_bounds = Memory::Read<Structs::FBoxSphereBounds>(mesh + Offset::cached_local_bounds, target_pid);
+            Structs::FTransform transform_bounds = Memory::Read<Structs::FTransform>(mesh + Offset::component_to_world, target_pid);
+
+            uintptr_t character_movement = Memory::Read<uintptr_t>(actor + Offset::character_movement, target_pid);
+            Structs::FVector target_velocity = Memory::Read<Structs::FVector>(character_movement + Offset::velocity, target_pid);
+            Structs::FVector target_acceleration = Memory::Read<Structs::FVector>(character_movement + Offset::acceleration, target_pid);
+
+            // Fill player object 3D box corners
+            cached_local_bounds.BoxExtent.X *= 0.45f;
+            cached_local_bounds.BoxExtent.Y *= 0.45f;
+            cached_local_bounds.BoxExtent.Z *= 0.65f;
+            cached_local_bounds.Origin.Z -= cached_local_bounds.BoxExtent.Z * 0.0f;
+
+            Structs::FVector corners[8] = {
+                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, -cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, -cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z},
+                {-cached_local_bounds.BoxExtent.X, cached_local_bounds.BoxExtent.Y, cached_local_bounds.BoxExtent.Z}};
+
+            Structs::FTransform transform_mech = Ue4::get_component_to_world(actor, target_pid);
+            Structs::FTransform bone_transform_head = Ue4::get_bone_transform(actor, 6, target_pid);
+            Structs::FTransform bone_transform_root = Ue4::get_bone_transform(actor, 0, target_pid);
+            Structs::FVector head_position = transform_mech.TransformPosition(bone_transform_head.Translation);
+            Structs::FVector root_position = transform_mech.TransformPosition(bone_transform_root.Translation);
+            Structs::FVector head_location = Ue4::world_to_screen(head_position, minimal_view_info, display.width, display.height);
+            Structs::FVector root_location = Ue4::world_to_screen(root_position, minimal_view_info, display.width, display.height);
 
             Structs::FVector aim_point = {0.0f, 0.0f, 0.0f};
             float cx = display.width / 2.0f;
@@ -987,12 +855,12 @@ int main(int argc, char *argv[])
                 constexpr float DEG2RAD = 3.14159265f / 180.f; // conversion factor from degrees to radians
                 constexpr float G_CM = 980.f;                  // acceleration due to gravity in cm/s² in PUBG
 
-                Structs::FVector target_position = active.head_position;
+                Structs::FVector target_position = head_position;
                 Structs::FVector shooter_position = minimal_view_info.Location;
                 float gravity_scale = gravity_scale_local;
                 float bullet_speed = bullet_speed_local;
-                Structs::FVector acceleration = active.target_acceleration;
-                Structs::FVector velocity = active.target_velocity;
+                Structs::FVector acceleration = target_acceleration;
+                Structs::FVector velocity = target_velocity;
                 float latency_drag = aim_latency_drag.load();
                 float g_cm = G_CM * gravity_scale;
 
@@ -1027,7 +895,7 @@ int main(int argc, char *argv[])
                 }
 
                 // Adjust aim_point for latency (3)
-                aim_point = aim_point + (velocity * latency_drag);
+                aim_point = aim_point + (target_velocity * latency_drag);
 
                 if (b_has_auto_fire_mode || !b_is_gun_ads)
                 {
@@ -1054,11 +922,14 @@ int main(int argc, char *argv[])
             }
 
             Structs::Player player_obj;
-            for (int c = 0; c < 8; ++c)
+            for (int i = 0; i < 8; ++i)
             {
-                player_obj.bounds[c] = Ue4::world_to_screen(active.world_corners[c], minimal_view_info, display.width, display.height);
+                Structs::FVector local = corners[i] + cached_local_bounds.Origin;
+                Structs::FVector world = transform_bounds.TransformPosition(local);
+                Structs::FVector screen = Ue4::world_to_screen(world, minimal_view_info, display.width, display.height);
+                player_obj.bounds[i] = screen;
             }
-            player_obj.position = active.translation;
+            player_obj.position = transform.Translation;
             player_obj.target = Ue4::world_to_screen(aim_point, minimal_view_info, display.width, display.height);
             player_obj.location = screen_pos;
             player_obj.head = head_location;

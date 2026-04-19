@@ -1,0 +1,270 @@
+[SIZE=6][B]Teleport-Decoy Filter — Design Document[/B][/SIZE]
+
+[SIZE=5][B]1. Problem[/B][/SIZE]
+
+The anti-cheat corrupts enemy pawn data in memory to produce false positions for cheats that render from those values. On screen this appears as player boxes, name tags, and aim anchors jumping to wrong positions. The filter must detect corrupt frames and suppress them without altering clean-frame behavior.
+
+[SIZE=5][B]2. Attack surfaces[/B][/SIZE]
+
+The AC attacks [B]three independent memory regions[/B] on each pawn:
+
+[CODE]
++-----------------------+------------------------------+-----------------------------+----------------------------+
+| Surface               | Location                     | Trigger                     | Magnitude                  |
++-----------------------+------------------------------+-----------------------------+----------------------------+
+| Root ComponentToWorld | actor->root + 0x210 + 0x10   | Always                      | 150-250 m XY decoy         |
+| Mesh ComponentToWorld | actor->mesh + 0x210          | On-screen only (UCTW hook)  | 0 to few-m XY perturbation |
+| Bone array            | actor->mesh + 0x990 + idx*48 | With mesh spoof             | Small bone drift           |
++-----------------------+------------------------------+-----------------------------+----------------------------+
+[/CODE]
+
+All three preserve Z. Only X and Y are modified. The AC does [B]not[/B] touch [B]FRepMovement.Location[/B], [B]CharacterMovement->LastUpdateLocation[/B], or the [B]CurrentVehicle[/B] actor's own root — these feed netcode and client prediction, so corrupting them would break the game for legit clients.
+
+Pattern is transient: corrupt frames interleave with clean frames at ~1 Hz per attacked actor. Clean frames dominate.
+
+[SIZE=5][B]3. Location-like fields in the SDK[/B][/SIZE]
+
+Class chain for enemy pawns: [B]AActor -> APawn -> ACharacter -> AUAECharacter -> ASTExtraCharacter[/B].
+
+[CODE]
++---------------------------------+---------------------------------+---------+----------------+---------------------------+
+| Source                          | Access                          | Offset  | Update rate    | Trust                     |
++---------------------------------+---------------------------------+---------+----------------+---------------------------+
+| Root translation (attacked)     | actor+0x208 -> +0x210 + 0x10    |    -    | physics tick   | spoofed                   |
+| FRepMovement.Location (REP)     | actor+0x128                     |  0x128  | network tick   | clean, lagged             |
+| CMC -> LastUpdateLocation (LUL) | actor+0x518 -> +0x314           |    -    | physics tick   | clean, freezes in vehicle |
+| CurrentVehicle -> Root CTW.T    | actor+0xEB0 -> +0x208 -> +0x210 |    -    | physics tick   | clean (separate actor)    |
+| ReplicatedBasedMovement         | actor+0x56c                     |  0x56c  | network tick   | unreliable, drop          |
++---------------------------------+---------------------------------+---------+----------------+---------------------------+
+[/CODE]
+
+Struct layouts (from [B]Structs.hpp[/B]):
+
+[CODE]
+FRepMovement (0x48)
+    0x00  FVector    LinearVelocity
+    0x0C  FVector    AngularVelocity
+    0x18  FVector    Location        <-- used
+    0x24  FRotator   Rotation
+
+FBasedMovementInfo (0x30)
+    0x00  UPrimitiveComponent*    MovementBase   (null = world-space)
+    0x14  FVector_NetQuantize100  Location
+[/CODE]
+
+[SIZE=5][B]4. Reference comparison[/B][/SIZE]
+
+Measured against [B]raw[/B] (root translation):
+
+[CODE]
++-----------+------------------------+-----------------------+----------------------+-------------+--------------------+
+| Reference | Clean-frame gap        | On decoy frame        | In vehicle           | Lag         | Reads              |
++-----------+------------------------+-----------------------+----------------------+-------------+--------------------+
+| LUL       | 0 cm (exact)           | stays at real         | freezes at attach    | 0           | 1 ptr + 1 FVector  |
+| VEH       | 30-50 cm XY / -180 Z   | live vehicle position | tracks correctly     | 0           | 2 ptr + 1 FVector  |
+| REP       | 20-70 cm (net-tick)    | untouched             | freezes at attach    | 50-150 ms   | 1 FVector          |
++-----------+------------------------+-----------------------+----------------------+-------------+--------------------+
+[/CODE]
+
+[B]Selection:[/B] VEH when in vehicle, else LUL, else REP as last-resort fallback.
+
+[SIZE=5][B]5. Why direct snap-on-detect is insufficient[/B][/SIZE]
+
+[B]player_obj[/B] is built from multiple independent world reads:
+
+[CODE]
+transform         <- root CTW
+transform_bounds  <- mesh CTW
+transform_mech    <- mesh CTW
+head_position     = transform_mech * head bone
+root_position     = transform_mech * root bone
+corners_world[8]  = transform_bounds * local corners
+[/CODE]
+
+Patching only [B]transform.Translation[/B] leaves mesh-derived fields (corners, head, root) coming from an independent surface the AC also attacks. Result: mixed-source visual artifacts — box in one place, name tag in another.
+
+[SIZE=5][B]6. Solution — snapshot retention with three validation gates[/B][/SIZE]
+
+Keep the full world-space read-set from the most recent clean frame. On any corrupt frame, replay the whole snapshot. Every rendered field stays from the same validated moment.
+
+[SIZE=4][B]6.1 Per-frame algorithm[/B][/SIZE]
+
+[CODE]
+for each actor:
+    # existing early rejects (dead, team, name) ...
+
+    raw = read(root CTW translation)
+    lul = CMC ? read(CMC + LastUpdateLocation)           : 0
+    veh = vehicle ? read(vehicle_root CTW translation)   : 0
+
+    # Death / exit
+    if raw == 0 and lul == 0 and veh == 0:
+        store.remove(actor); continue
+
+    # Select reference
+    reference = in_vehicle ? veh : lul ?: rep ?: none
+
+    # --- Gate 1: root vs reference (XY <= 300 cm) ---
+    root_clean = (reference is none) or xy_dist(raw, reference) <= 300
+
+    snapshot_valid = false
+    if root_clean:
+        mesh           = read(actor + mesh_ptr)
+        bounds_local   = read(mesh + cached_local_bounds)
+        transform_mesh = read(mesh + CTW)
+
+        # --- Gate 2: mesh vs root (XY <= 50 cm) ---
+        if xy_dist(transform_mesh.Translation, raw) <= 50:
+
+            # Reuse transform_mesh for both corners and bones
+            # (one read, no inter-read race window)
+            head = transform_mesh * read_bone(6).Translation
+            root = transform_mesh * read_bone(0).Translation
+
+            # --- Gate 3: bone anchors vs root (XY <= 150 cm each) ---
+            if xy_dist(head, raw) <= 150 and xy_dist(root, raw) <= 150:
+                snapshot = {
+                    translation:         raw,
+                    head_position:       head,
+                    root_position:       root,
+                    world_corners[8]:    transform_mesh * (local_corners + origin),
+                    target_velocity:     read(CMC + velocity),
+                    target_acceleration: read(CMC + acceleration)
+                }
+                store.set(actor, snapshot)
+                snapshot_valid = true
+
+    if not snapshot_valid:
+        if store.has(actor):
+            snapshot = store.get(actor)
+        else:
+            continue   # first sighting already corrupt
+
+    # Project to screen with current camera (never store screen-space)
+    player_obj.location      = world_to_screen(snapshot.translation)
+    player_obj.head          = world_to_screen(snapshot.head_position)
+    player_obj.root          = world_to_screen(snapshot.root_position)
+    for i in 0..7:
+        player_obj.bounds[i] = world_to_screen(snapshot.world_corners[i])
+
+    # Aimbot consumes snapshot.head_position / velocity / acceleration
+[/CODE]
+
+[SIZE=4][B]6.2 Snapshot contents[/B][/SIZE]
+
+Only world-space. [B]Never store screen-space[/B] — it depends on the current camera.
+
+[PHP]
+struct ActorSnapshot {
+    FVector translation;            // 12 B - root world translation
+    FVector world_corners[8];       // 96 B - pre-transformed box corners
+    FVector head_position;          // 12 B - head bone, world
+    FVector root_position;          // 12 B - feet bone, world
+    FVector target_velocity;        // 12 B - ballistics
+    FVector target_acceleration;    // 12 B
+};                                  // ~156 B per actor (~15 KB for 100 actors)
+[/PHP]
+
+[SIZE=4][B]6.3 Storage options[/B][/SIZE]
+
+Logic is identical across these; only the lookup primitive changes.
+[LIST=1]
+[*][B]std::unordered_map<uintptr_t, ActorSnapshot>[/B] — O(1), one heap alloc per new actor.
+[*][B]Flat array + linear scan[/B] — O(N), N <= 100, cache-friendly.
+[*][B]Previous frame's output buffer[/B] — add actor_ptr to Structs::Player, linear-scan the previous game_buffers. No new structure.
+[/LIST]
+
+[SIZE=4][B]6.4 Edge cases[/B][/SIZE]
+
+[CODE]
++----------------------------------------+------------------------------------+-----------------------------------------+
+| Situation                              | Signal                             | Response                                |
++----------------------------------------+------------------------------------+-----------------------------------------+
+| Pawn died / disconnected               | raw == lul == veh == 0             | Erase store entry; continue.            |
+| First sighting already corrupt         | !store.has(actor) and gate fails   | Skip this actor this frame.             |
+| CMC pointer null                       | cmc_ptr == 0                       | Reference falls through to REP.         |
+| Non-character passing name/health      | lul == rep == 0, raw != 0          | No reference; root_clean = true.        |
++----------------------------------------+------------------------------------+-----------------------------------------+
+[/CODE]
+
+[SIZE=4][B]6.5 Thresholds[/B][/SIZE]
+
+[CODE]
++--------------------------------+-----------+------------------+-----------------------------------------------------+
+| Gate                           | Threshold | Clean-frame gap  | Rationale                                           |
++--------------------------------+-----------+------------------+-----------------------------------------------------+
+| Root vs reference (XY)         | 300 cm    | 0-50 cm          | > 6x worst clean gap, << smallest decoy (15 000 cm) |
+| Mesh vs root (XY)              | 50 cm     | 0-10 cm          | Mesh co-located with capsule root; ~0 cm natural    |
+| Bone anchor vs root (XY)       | 150 cm    | 0-30 cm          | Head/feet inside vertical cylinder around pawn      |
++--------------------------------+-----------+------------------+-----------------------------------------------------+
+[/CODE]
+
+[SIZE=5][B]7. Advantages[/B][/SIZE]
+
+[LIST=1]
+[*][B]Internally consistent data[/B] — every rendered field descends from the same validated moment.
+[*][B]No semantic change for the aimbot[/B] — target comes from the same read chain, just occasionally one clean frame old.
+[*][B]Seat height preserved in vehicles[/B] — raw.Z captured at seat height survives into decoy frames; VEH's chassis-Z never enters the pipeline.
+[*][B]Fewer reads on corrupt frames[/B] — skips mesh / bone / velocity / acceleration reads entirely.
+[*][B]Zero overhead on clean frames[/B] — only added cost is LUL/VEH/REP reads (cheap).
+[/LIST]
+
+[SIZE=5][B]8. Drawbacks[/B][/SIZE]
+
+[LIST=1]
+[*][B]Staleness during sustained corruption bursts[/B] — snapshot ages if many consecutive frames fail the gates. Clean frames dominate in practice.
+[*][B]First-sighting bootstrap gap[/B] — one dropped frame per actor if first scan is already corrupt.
+[*][B]Unbounded growth if actors leave without hitting all-zeros[/B] — bounded by match size (~100); add TTL if needed.
+[/LIST]
+
+[SIZE=5][B]9. Offsets required[/B][/SIZE]
+
+[PHP]
+namespace Offset {
+    //-- AActor
+    constexpr uintptr_t root_component               = 0x208;
+    constexpr uintptr_t replicated_movement_location = 0x128;   // FRepMovement.Location
+
+    //-- USceneComponent
+    constexpr uintptr_t component_to_world           = 0x210;
+    // FTransform.Translation = +0x10 inside the FTransform (FQuaternion precedes it)
+
+    //-- ACharacter
+    constexpr uintptr_t mesh                         = 0x510;
+    constexpr uintptr_t character_movement           = 0x518;
+
+    //-- UCharacterMovementComponent
+    constexpr uintptr_t last_update_location         = 0x314;
+    constexpr uintptr_t velocity                     = 0x18c;
+    constexpr uintptr_t acceleration                 = 0x308;
+
+    //-- USkinnedMeshComponent
+    constexpr uintptr_t cached_local_bounds          = 0xaec;
+    constexpr uintptr_t static_mesh                  = 0x990;   // bone array base
+
+    //-- ASTExtraCharacter
+    constexpr uintptr_t current_vehicle              = 0xeb0;
+}
+[/PHP]
+
+[SIZE=5][B]10. Implementation checklist[/B][/SIZE]
+
+[LIST]
+[*]Define [B]struct ActorSnapshot[/B] (top of main.cpp or in structs.h).
+[*]Declare the store [B]static[/B] inside the scanning function (container per 6.3).
+[*]After reading [B]transform[/B], read LUL / VEH / REP.
+[*]All-zeros erase rule.
+[*][B]Gate 1[/B] — root vs reference (300 cm).
+[*][B]Gate 2[/B] — transform_bounds.Translation vs raw (50 cm).
+[*]Reuse transform_bounds as transform_mech (do not re-read mesh CTW).
+[*][B]Gate 3[/B] — computed head_position and root_position vs raw (150 cm each).
+[*]Store the snapshot only when all three gates pass; otherwise fall through to cached.
+[*]Downstream consumes snapshot world values; world_to_screen runs every frame with current camera.
+[/LIST]
+
+[SIZE=5][B]11. Out of scope[/B][/SIZE]
+
+[LIST]
+[*][B]Ghost actors[/B] — separate decoy actor instances in the UWorld list with their own valid LUL/VEH. This filter cannot distinguish them; requires a render-suppression or proximity-dedupe detector.
+[*][B]Bone index 6 resolving to UStaticMesh* on some PUBG Mobile builds[/B] — affects head-anchor accuracy for health bars; independent of decoy filtering.
+[/LIST]

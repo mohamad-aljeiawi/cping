@@ -28,6 +28,7 @@
 #include <functional>
 #include <thread>
 #include <fstream>
+#include <unordered_map>
 #ifdef __ANDROID__
 #include <pthread.h>
 #include <sys/resource.h>
